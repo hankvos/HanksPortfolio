@@ -202,7 +202,10 @@ def calculate_median_house_by_suburb(df, postcode):
     return median_by_suburb
 
 def generate_median_house_price_chart(df, data_dict, chart_type="region", selected_region=None, selected_postcode=None):
-    """Generate a bar chart for median house prices."""
+    """Generate a bar chart for median house prices (disabled to save memory)."""
+    return None  # Disabled for Render free tier
+    """
+    # Uncomment below to re-enable median chart
     if not data_dict:
         return None
     os.makedirs('static', exist_ok=True)
@@ -237,13 +240,15 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
     plt.savefig(chart_path)
     plt.close()
     return chart_path
+    """
 
 def generate_plots(region_data, selected_region, selected_postcode, selected_suburb):
-    """Generate histogram for price distribution (Price vs Size scatter removed)."""
+    """Generate plots (disabled for memory optimization)."""
+    return None, None  # No plots generated
+    """
+    # Uncomment below to re-enable histogram
     os.makedirs('static', exist_ok=True)
     prices = region_data["Price"].dropna()
-
-    # Price Histogram
     plt.figure(figsize=(8, 4))
     plt.hist(prices / 1e6, bins=20, range=(0, 3), color='#87CEEB', edgecolor='black')
     plt.title(f"Price Distribution - {selected_region}{' - ' + selected_postcode if selected_postcode else ''}{' - ' + selected_suburb if selected_suburb else ''}", fontsize=12)
@@ -255,8 +260,8 @@ def generate_plots(region_data, selected_region, selected_postcode, selected_sub
     price_hist_path = 'static/price_histogram.png'
     plt.savefig(price_hist_path)
     plt.close()
-
-    return price_hist_path, None  # No scatter plot
+    return price_hist_path, None
+    """
 
 def calculate_stats(region_data):
     """Calculate mean, median, and standard deviation of prices."""
@@ -278,12 +283,16 @@ def index():
         avg_price = 0
         sort_by = "Address"
         postcodes = suburbs = []
-        price_hist_path = None  # Removed price_size_scatter_path
+        price_hist_path = None  # No histogram
         stats = {"mean": 0, "median": 0, "std": 0}
+        median_chart_path = None  # No median chart
 
-        # Default chart
+        # Disabled median chart to save memory
+        """
+        # Uncomment below to re-enable median chart
         median_by_region = calculate_median_house_by_region(PROPERTY_DF)
         median_chart_path = generate_median_house_price_chart(PROPERTY_DF, median_by_region, chart_type="region")
+        """
 
         if request.method == "POST" and request.form.get("region"):
             selected_region = request.form.get("region")
@@ -301,16 +310,19 @@ def index():
             if not region_data.empty:
                 properties = region_data[["Address", "Price", "Size", "Settlement Date"]].to_dict("records")
                 avg_price = calculate_avg_price(region_data)
-                price_hist_path, _ = generate_plots(region_data, selected_region, selected_postcode, selected_suburb)  # Only histogram
+                # price_hist_path, _ = generate_plots(region_data, selected_region, selected_postcode, selected_suburb)  # Histogram disabled
                 stats = calculate_stats(region_data)
 
-            # Dynamic chart selection
-            if selected_region and not selected_postcode:
-                median_by_postcode = calculate_median_house_by_postcode(PROPERTY_DF, selected_region)
-                median_chart_path = generate_median_house_price_chart(PROPERTY_DF, median_by_postcode, chart_type="postcode", selected_region=selected_region)
-            elif selected_postcode:
-                median_by_suburb = calculate_median_house_by_suburb(PROPERTY_DF, selected_postcode)
-                median_chart_path = generate_median_house_price_chart(PROPERTY_DF, median_by_suburb, chart_type="suburb", selected_postcode=selected_postcode)
+                # Disabled dynamic median chart updates
+                """
+                # Uncomment below to re-enable dynamic median charts
+                if selected_region and not selected_postcode:
+                    median_by_postcode = calculate_median_house_by_postcode(PROPERTY_DF, selected_region)
+                    median_chart_path = generate_median_house_price_chart(PROPERTY_DF, median_by_postcode, chart_type="postcode", selected_region=selected_region)
+                elif selected_postcode:
+                    median_by_suburb = calculate_median_house_by_suburb(PROPERTY_DF, selected_postcode)
+                    median_chart_path = generate_median_house_price_chart(PROPERTY_DF, median_by_suburb, chart_type="suburb", selected_postcode=selected_postcode)
+                """
 
         return render_template(
             "index.html",
@@ -324,7 +336,7 @@ def index():
             properties=properties,
             avg_price=avg_price,
             sort_by=sort_by,
-            price_hist_path=price_hist_path,  # Removed price_size_scatter_path
+            price_hist_path=price_hist_path,
             stats=stats,
             median_chart_path=median_chart_path
         )
