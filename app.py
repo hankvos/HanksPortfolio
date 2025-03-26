@@ -39,59 +39,60 @@ PROPERTY_DF = None
 REGION_SUBURBS = {}
 
 def load_property_data(zip_files=None):
-    """Load property data from ZIP files containing .DAT records."""
+    """Load property data from ZIP files containing .DAT records incrementally."""
     if zip_files is None:
-        current_year = datetime.now().year
-        zip_files = glob.glob("20[2][0-9].zip")
-        print(f"Current directory: {os.getcwd()}")
-        print(f"Looking for ZIP files matching pattern '20[2][0-9].zip': {zip_files}")
-        if not zip_files:
-            all_zip_files = [f for f in glob.glob("*.zip") if f.lower().startswith(('2024', '2025'))]
-            print(f"Fallback - All ZIP files found: {all_zip_files}")
-            zip_files = all_zip_files
-            if not zip_files:
-                all_files = os.listdir(".")
-                print(f"All files in directory: {all_files}")
-                raise ValueError("No ZIP files found for 2024-2025 in the current directory.")
+        zip_files = glob.glob("[2][0][2][4-5].zip")
+        print(f"ZIP files found: {zip_files}")
+    if not zip_files:
+        raise ValueError("No ZIP files found for 2024-2025.")
 
-    all_records = []
-    for zip_path in sorted(zip_files):
-        print(f"Processing ZIP file: {zip_path}")
-        with zipfile.ZipFile(zip_path, "r") as outer_zip:
-            inner_zips = [f for f in outer_zip.namelist() if f.endswith(".zip")]
-            dat_files = [f for f in outer_zip.namelist() if f.endswith(".DAT")]
-            if inner_zips:
-                for inner_zip_name in inner_zips:
-                    with outer_zip.open(inner_zip_name) as inner_zip_file:
-                        with zipfile.ZipFile(BytesIO(inner_zip_file.read())) as inner_zip:
-                            for dat_file in [f for f in inner_zip.namelist() if f.endswith(".DAT")]:
-                                with inner_zip.open(dat_file) as f:
-                                    content = f.read().decode("utf-8").splitlines()
-                                    all_records.extend([line.split(";") for line in content if line.startswith("B;")])
-            elif dat_files:
-                for dat_file in dat_files:
-                    with outer_zip.open(dat_file) as f:
-                        content = f.read().decode("utf-8").splitlines()
-                        all_records.extend([line.split(";") for line in content if line.startswith("B;")])
+    # Column names we care about (19 fields)
+    column_names = [
+        "Record Type", "District Code", "Property ID", "Unit Number",
+        "Unused1", "Unused2", "Potential Unit", "House Number",
+        "Street Name", "Suburb", "Postcode", "Area",
+        "Unused3", "Unused4", "Settlement Date", "Sale Price",
+        "Unused5", "Unused6", "Property Type"
+    ]
 
-    if not all_records:
+    # Use a generator to yield all records
+    def record_generator():
+        for zip_path in sorted(zip_files):
+            with zipfile.ZipFile(zip_path, "r") as outer_zip:
+                inner_zips = [f for f in outer_zip.namelist() if f.endswith(".zip")]
+                dat_files = [f for f in outer_zip.namelist() if f.endswith(".DAT")]
+                if inner_zips:
+                    for inner_zip_name in inner_zips:
+                        with outer_zip.open(inner_zip_name) as inner_zip_file:
+                            with zipfile.ZipFile(BytesIO(inner_zip_file.read())) as inner_zip:
+                                for dat_file in [f for f in inner_zip.namelist() if f.endswith(".DAT")]:
+                                    with inner_zip.open(dat_file) as f:
+                                        for line in f.read().decode("utf-8").splitlines():
+                                            if line.startswith("B;"):
+                                                record = line.split(";")
+                                                if len(record) < 19:
+                                                    record.extend([""] * (19 - len(record)))
+                                                elif len(record) > 19:
+                                                    record = record[:19]
+                                                yield record
+                elif dat_files:
+                    for dat_file in dat_files:
+                        with outer_zip.open(dat_file) as f:
+                            for line in f.read().decode("utf-8").splitlines():
+                                if line.startswith("B;"):
+                                    record = line.split(";")
+                                    if len(record) < 19:
+                                        record.extend([""] * (19 - len(record)))
+                                    elif len(record) > 19:
+                                        record = record[:19]
+                                    yield record
+
+    # Create DataFrame with all records
+    df = pd.DataFrame(record_generator(), columns=column_names)
+    df = df.drop(columns=[col for col in df.columns if col.startswith("Unused")])
+
+    if df.empty:
         raise ValueError("No B records found in any .DAT files.")
-
-    df = pd.DataFrame({
-        "Record Type": [r[0] for r in all_records],
-        "District Code": [r[1] for r in all_records],
-        "Property ID": [r[2] for r in all_records],
-        "Unit Number": [r[3] for r in all_records],
-        "Potential Unit": [r[6] for r in all_records],
-        "House Number": [r[7] for r in all_records],
-        "Street Name": [r[8] for r in all_records],
-        "Suburb": [r[9] for r in all_records],
-        "Postcode": [r[10] for r in all_records],
-        "Area": [r[11] for r in all_records],
-        "Sale Price": [r[15] for r in all_records],
-        "Settlement Date": [r[14] for r in all_records],
-        "Property Type": [r[18] for r in all_records]
-    })
 
     def determine_property_type(row):
         base_type = row["Property Type"].strip().upper()
@@ -131,6 +132,7 @@ def load_property_data(zip_files=None):
     df_filtered["Size"] = df_filtered["Area"].replace("", "N/A").fillna("N/A").astype(str) + " sqm"
     df_filtered["Settlement Date"] = pd.to_datetime(df_filtered["Settlement Date"], format="%Y%m%d", errors="coerce").dt.strftime("%d/%m/%Y")
 
+    print(f"Loaded {len(df_filtered)} records into DataFrame.")
     return df_filtered
 
 def get_region_data(df, region=None, postcode=None, suburb=None, property_type=None, sort_by="Address"):
@@ -218,17 +220,17 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
     date_range = f" (Jan 2024 - {datetime.now().strftime('%b %Y')})" if house_data["Settlement Date"].dropna().empty else \
                  f" ({house_data['Settlement Date'].min().strftime('%b %Y')} - {house_data['Settlement Date'].max().strftime('%b %Y')})"
 
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(8, 4))
     bars = plt.bar(labels, prices, color='#4682B4', edgecolor='black', width=0.6)
-    plt.title(f"{title_prefix}{date_range}", fontsize=16, pad=20)
-    plt.xlabel("Suburb" if chart_type == "suburb" else "Postcode" if chart_type == "postcode" else "Region", fontsize=12)
-    plt.ylabel("Median Price ($)", fontsize=12)
-    plt.xticks(rotation=45, ha="right", fontsize=10)
+    plt.title(f"{title_prefix}{date_range}", fontsize=12, pad=15)
+    plt.xlabel("Suburb" if chart_type == "suburb" else "Postcode" if chart_type == "postcode" else "Region", fontsize=10)
+    plt.ylabel("Median Price ($)", fontsize=10)
+    plt.xticks(rotation=45, ha="right", fontsize=8)
     plt.grid(True, axis='y', alpha=0.2)
     plt.gca().yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
     for bar in bars:
         plt.text(bar.get_x() + bar.get_width()/2., bar.get_height() + max(prices)*0.02,
-                 f"${bar.get_height():,}", ha='center', va='bottom', fontsize=10, color='#333')
+                 f"${bar.get_height():,}", ha='center', va='bottom', fontsize=8, color='#333')
     
     chart_path = 'static/median_house_price_chart.png'
     plt.tight_layout()
@@ -237,16 +239,16 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
     return chart_path
 
 def generate_plots(region_data, selected_region, selected_postcode, selected_suburb):
-    """Generate histogram and scatter plots for price distribution and price vs size."""
+    """Generate histogram for price distribution (Price vs Size scatter removed)."""
     os.makedirs('static', exist_ok=True)
     prices = region_data["Price"].dropna()
 
     # Price Histogram
-    plt.figure(figsize=(10, 6))
-    plt.hist(prices / 1e6, bins=30, range=(0, 3), color='#87CEEB', edgecolor='black')
-    plt.title(f"Price Distribution - {selected_region}{' - ' + selected_postcode if selected_postcode else ''}{' - ' + selected_suburb if selected_suburb else ''}", fontsize=14)
-    plt.xlabel("Sale Price ($million)", fontsize=12)
-    plt.ylabel("Frequency", fontsize=12)
+    plt.figure(figsize=(8, 4))
+    plt.hist(prices / 1e6, bins=20, range=(0, 3), color='#87CEEB', edgecolor='black')
+    plt.title(f"Price Distribution - {selected_region}{' - ' + selected_postcode if selected_postcode else ''}{' - ' + selected_suburb if selected_suburb else ''}", fontsize=12)
+    plt.xlabel("Sale Price ($million)", fontsize=10)
+    plt.ylabel("Frequency", fontsize=10)
     plt.xlim(0, 3)
     plt.grid(True, alpha=0.2)
     plt.gca().xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
@@ -254,27 +256,7 @@ def generate_plots(region_data, selected_region, selected_postcode, selected_sub
     plt.savefig(price_hist_path)
     plt.close()
 
-    # Price vs Size Scatter
-    size_numeric = pd.to_numeric(region_data["Size"].str.replace(" sqm", ""), errors="coerce").dropna()
-    prices = region_data["Price"].loc[size_numeric.index] / 1e6
-    price_size_scatter_path = None
-    if not size_numeric.empty and not prices.empty:
-        plt.figure(figsize=(10, 6))
-        plt.scatter(size_numeric, prices, color='#FF7F50', alpha=0.5)
-        coeffs = np.polyfit(size_numeric, prices, 1)
-        plt.plot(size_numeric, np.poly1d(coeffs)(size_numeric), color='#4682B4', linestyle='--')
-        plt.title(f"Price vs Size - {selected_region}{' - ' + selected_postcode if selected_postcode else ''}{' - ' + selected_suburb if selected_suburb else ''}", fontsize=14)
-        plt.xlabel("Size (sqm)", fontsize=12)
-        plt.ylabel("Sale Price ($million)", fontsize=12)
-        plt.xlim(0, size_numeric.max() * 1.1)
-        plt.ylim(0, 3)
-        plt.grid(True, alpha=0.2)
-        plt.gca().yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
-        price_size_scatter_path = 'static/price_size_scatter.png'
-        plt.savefig(price_size_scatter_path)
-        plt.close()
-
-    return price_hist_path, price_size_scatter_path
+    return price_hist_path, None  # No scatter plot
 
 def calculate_stats(region_data):
     """Calculate mean, median, and standard deviation of prices."""
@@ -296,7 +278,7 @@ def index():
         avg_price = 0
         sort_by = "Address"
         postcodes = suburbs = []
-        price_hist_path = price_size_scatter_path = None
+        price_hist_path = None  # Removed price_size_scatter_path
         stats = {"mean": 0, "median": 0, "std": 0}
 
         # Default chart
@@ -319,7 +301,7 @@ def index():
             if not region_data.empty:
                 properties = region_data[["Address", "Price", "Size", "Settlement Date"]].to_dict("records")
                 avg_price = calculate_avg_price(region_data)
-                price_hist_path, price_size_scatter_path = generate_plots(region_data, selected_region, selected_postcode, selected_suburb)
+                price_hist_path, _ = generate_plots(region_data, selected_region, selected_postcode, selected_suburb)  # Only histogram
                 stats = calculate_stats(region_data)
 
             # Dynamic chart selection
@@ -342,8 +324,7 @@ def index():
             properties=properties,
             avg_price=avg_price,
             sort_by=sort_by,
-            price_hist_path=price_hist_path,
-            price_size_scatter_path=price_size_scatter_path,
+            price_hist_path=price_hist_path,  # Removed price_size_scatter_path
             stats=stats,
             median_chart_path=median_chart_path
         )
