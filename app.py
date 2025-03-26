@@ -383,4 +383,8 @@ def initialize_data():
 initialize_data()
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True)  # Local development
+else:
+    import os
+    port = int(os.environ.get("PORT", 5000))  # Render assigns PORT
+    app.run(host="0.0.0.0", port=port, debug=False)  # Production
