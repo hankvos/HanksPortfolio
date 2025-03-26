@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Central Coast Property Analyzer</title>
+    <style>
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        th, td {
+            border: 1px solid black;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+    <script>
+        function updatePostcodes() {
+            const region = document.getElementById("region").value;
+            const postcodeSelect = document.getElementById("postcode");
+            postcodeSelect.innerHTML = '<option value="">All Postcodes</option>';
+            
+            if (region) {
+                fetch(`/get_postcodes?region=${region}`)
+                    .then(response => response.json())
+                    .then(postcodes => {
+                        postcodes.forEach(pc => {
+                            const option = document.createElement("option");
+                            option.value = pc;
+                            option.text = pc;
+                            postcodeSelect.appendChild(option);
+                        });
+                    });
+            }
+        }
+    </script>
+</head>
+<body>
+    <h1>Central Coast Property Analyzer</h1>
+    <form method="POST">
+        <label for="region">Select Region:</label>
+        <select name="region" id="region" onchange="updatePostcodes()">
+            <option value="">Select a Region</option>
+            {% for region in regions %}
+                <option value="{{ region }}" {% if region == selected_region %}selected{% endif %}>
+                    {{ region }}
+                </option>
+            {% endfor %}
+        </select>
+
+        <label for="postcode">Select Postcode:</label>
+        <select name="postcode" id="postcode">
+            <option value="">All Postcodes</option>
+            {% if selected_region and selected_postcode %}
+                {% for pc in REGION_POSTCODE_LIST[selected_region] %}
+                    <option value="{{ pc }}" {% if pc == selected_postcode %}selected{% endif %}>
+                        {{ pc }}
+                    </option>
+                {% endfor %}
+            {% endif %}
+        </select>
+
+        <label for="sort_by">Sort By:</label>
+        <select name="sort_by" id="sort_by">
+            <option value="Address" {% if sort_by == "Address" %}selected{% endif %}>Address</option>
+            <option value="Price" {% if sort_by == "Price" %}selected{% endif %}>Price</option>
+            <option value="Block Size" {% if sort_by == "Block Size" %}selected{% endif %}>Block Size</option>
+            <option value="Settlement Date" {% if sort_by == "Settlement Date" %}selected{% endif %}>Settlement Date</option>
+        </select>
+
+        <input type="submit" value="Analyze">
+    </form>
+
+    {% if selected_region %}
+        <h2>Results for {{ selected_region }}{% if selected_postcode %} - Postcode {{ selected_postcode }}{% endif %}</h2>
+        {% if properties %}
+            <table>
+                <tr>
+                    <th>Address</th>
+                    <th>Price</th>
+                    <th>Size</th>
+                    <th>Settlement Date</th>
+                </tr>
+                {% for prop in properties %}
+                    <tr>
+                        <td>{{ prop.Address }}</td>
+                        <td>${{ "{:,}".format(prop.Price|int) }}</td>
+                        <td>{{ prop.Size }}</td>
+                        <td>{{ prop["Settlement Date"] }}</td>
+                    </tr>
+                {% endfor %}
+            </table>
+            <p><strong>Average Asking Price:</strong> ${{ "{:,}".format(avg_price|int) }}</p>
+        {% else %}
+            <p>No properties found for this selection.</p>
+        {% endif %}
+    {% endif %}
+</body>
+</html>
