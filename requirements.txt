@@ -1,4 +1,4 @@
-echo Flask==3.0.3 > requirements.txt
-echo pandas==2.2.2 >> requirements.txt
-echo matplotlib==3.8.4 >> requirements.txt
-echo numpy==1.26.4 >> requirements.txt
+Flask==3.0.3
+pandas==2.2.2
+matplotlib==3.8.4
+numpy==1.26.4
