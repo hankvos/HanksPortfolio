@@ -179,8 +179,10 @@
                     Std Dev: ${{ "{:,}".format(stats.std|int) }}
                 </p>
                 
-                <h3>Price Distribution</h3>
-                <img src="{{ url_for('static', filename=price_hist_path.split('/')[-1]) }}" alt="Price Histogram" class="chart">
+                {% if price_hist_path %}
+                    <h3>Price Distribution</h3>
+                    <img src="{{ url_for('static', filename=price_hist_path.split('/')[-1]) }}" alt="Price Histogram" class="chart">
+                {% endif %}
                 
                 {% if price_size_scatter_path %}
                     <h3>Price vs Size</h3>
