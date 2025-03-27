@@ -63,7 +63,7 @@ def load_property_data(zip_files=None, max_inner_zips=1):
                 if inner_zips:
                     for inner_zip_name in inner_zips:
                         if inner_zip_count >= max_inner_zips:
-                            break  # Stop after max_inner_zips
+                            break
                         with outer_zip.open(inner_zip_name) as inner_zip_file:
                             with zipfile.ZipFile(BytesIO(inner_zip_file.read())) as inner_zip:
                                 for dat_file in [f for f in inner_zip.namelist() if f.endswith(".DAT")]:
@@ -379,9 +379,9 @@ def initialize_data():
 # Initialize data at startup
 initialize_data()
 
-if __name__ == "__main__":
-    app.run(debug=True)  # Local development
-else:
-    import os
-    port = int(os.environ.get("PORT", 5000))  # Render assigns PORT
+# Check if running on Render by looking for an environment variable Render sets
+if os.environ.get("RENDER"):  # Render sets this
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)  # Production
+else:
+    app.run(debug=True)  # Local development on 127.0.0.1:5000
