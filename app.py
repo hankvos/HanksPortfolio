@@ -43,8 +43,8 @@ REGION_POSTCODE_LIST = {region: expand_postcode_ranges(ranges) for region, range
 PROPERTY_DF = None
 REGION_SUBURBS = {}
 
-def load_property_data(zip_files=None, max_inner_zips=1):
-    """Load property data from ZIP files, limiting inner ZIPs to reduce memory."""
+def load_property_data(zip_files=None, max_inner_zips_2024=1, specific_2024_zip="20241230"):
+    """Load property data: all 2025 inner ZIPs, specific 2024 inner ZIP."""
     if zip_files is None:
         zip_files = glob.glob("[2][0][2][4-5].zip")
         logger.info(f"ZIP files found: {zip_files}")
@@ -60,14 +60,18 @@ def load_property_data(zip_files=None, max_inner_zips=1):
     ]
 
     def record_generator():
-        inner_zip_count = 0
         for zip_path in sorted(zip_files):
             with zipfile.ZipFile(zip_path, "r") as outer_zip:
                 inner_zips = [f for f in outer_zip.namelist() if f.endswith(".zip")]
-                dat_files = [f for f in outer_zip.namelist() if f.endswith(".DAT")]
+                dat_files = [f in outer_zip.namelist() for f in outer_zip.namelist() if f.endswith(".DAT")]
                 if inner_zips:
-                    for inner_zip_name in inner_zips:
-                        if inner_zip_count >= max_inner_zips:
+                    inner_zip_count = 0
+                    for inner_zip_name in sorted(inner_zips):
+                        # For 2024.zip, only process 20241230.zip
+                        if "2024.zip" in zip_path and inner_zip_name != f"{specific_2024_zip}.zip":
+                            continue
+                        # For 2025.zip, process all inner ZIPs; for 2024, limit to max_inner_zips_2024
+                        if "2024.zip" in zip_path and inner_zip_count >= max_inner_zips_2024:
                             break
                         with outer_zip.open(inner_zip_name) as inner_zip_file:
                             with zipfile.ZipFile(BytesIO(inner_zip_file.read())) as inner_zip:
@@ -377,15 +381,10 @@ def get_suburbs():
         return jsonify(sorted(region_data["Suburb"].unique()))
     return jsonify([])
 
-def initialize_data():
-    """Initialize global PROPERTY_DF and REGION_SUBURBS."""
-    global PROPERTY_DF, REGION_SUBURBS
-    PROPERTY_DF = load_property_data()
-    REGION_SUBURBS = {region: sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(postcodes)]["Suburb"].unique())
-                      for region, postcodes in REGION_POSTCODE_LIST.items()}
-
 # Initialize data at startup
-initialize_data()
+PROPERTY_DF = load_property_data()
+REGION_SUBURBS = {region: sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(postcodes)]["Suburb"].unique())
+                  for region, postcodes in REGION_POSTCODE_LIST.items()}
 
 if os.environ.get("RENDER"):
     port = int(os.environ.get("PORT", 10000))
