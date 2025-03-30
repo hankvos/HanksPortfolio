@@ -15,6 +15,11 @@ import logging
 
 app = Flask(__name__)
 
+# Define the comma filter for Jinja2
+def comma_filter(value):
+    return "{:,}".format(int(value))
+app.jinja_env.filters['comma'] = comma_filter
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
