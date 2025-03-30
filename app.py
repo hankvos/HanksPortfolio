@@ -91,10 +91,13 @@ def load_property_data(zip_files=None, max_inner_zips=1):
 
     df = pd.DataFrame(record_generator(), columns=column_names)
     df = df.drop(columns=[col for col in df.columns if col.startswith("Unused")])
-
+    
     if df.empty:
         raise ValueError("No B records found in any .DAT files.")
-
+    
+    # Debug: Print raw Settlement Date from first record
+    print("Raw Settlement Date (first record):", df["Settlement Date"].iloc[0])
+    
     def determine_property_type(row):
         base_type = row["Property Type"].strip().upper()
         potential_unit = row["Potential Unit"].strip()
@@ -116,10 +119,15 @@ def load_property_data(zip_files=None, max_inner_zips=1):
     df["Property Type"] = df.apply(determine_property_type, axis=1)
     df["Sale Price"] = pd.to_numeric(df["Sale Price"], errors="coerce")
     df_filtered = df[df["Sale Price"].notna() & df["Sale Price"].gt(0)].copy()
-
+    
     if df_filtered.empty:
         raise ValueError("No valid Sale Price data after filtering.")
-
+    
+    # Debug: Print before and after date conversion
+    print("Before conversion (first record):", df_filtered["Settlement Date"].iloc[0])
+    df_filtered["Settlement Date"] = pd.to_datetime(df_filtered["Settlement Date"], format="%Y%m%d", errors="coerce").dt.strftime("%d/%m/%Y")
+    print("After conversion (first record):", df_filtered["Settlement Date"].iloc[0])
+    
     for col in ["Unit Number", "House Number", "Street Name", "Suburb", "Postcode"]:
         df_filtered[col] = df_filtered[col].astype(str).replace("", "")
     
@@ -131,8 +139,7 @@ def load_property_data(zip_files=None, max_inner_zips=1):
     df_filtered = df_filtered.rename(columns={"Sale Price": "Price"})
     df_filtered["Price"] = df_filtered["Price"].astype(float).round(0)
     df_filtered["Size"] = df_filtered["Area"].replace("", "N/A").fillna("N/A").astype(str) + " sqm"
-    df_filtered["Settlement Date"] = pd.to_datetime(df_filtered["Settlement Date"], format="%Y%m%d", errors="coerce").dt.strftime("%d/%m/%Y")
-
+    
     print(f"Loaded {len(df_filtered)} records into DataFrame.")
     return df_filtered
 
@@ -266,7 +273,7 @@ def generate_plots(region_data, selected_region, selected_postcode, selected_sub
         plt.xlabel("Size (sqm)", fontsize=10)
         plt.ylabel("Sale Price ($million)", fontsize=10)
         plt.grid(True, alpha=0.2)
-        plt.gca().yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
+    plt.gca().yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
         price_size_scatter_path = 'static/price_size_scatter.png'
         plt.savefig(price_size_scatter_path)
         plt.close()
