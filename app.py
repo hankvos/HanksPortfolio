@@ -12,6 +12,7 @@ import matplotlib.ticker as mticker
 import numpy as np
 import os
 import urllib.parse
+from scipy import stats  # For trend lines
 
 app = Flask(__name__)
 
@@ -45,7 +46,7 @@ PROPERTY_DF = None
 REGION_SUBURBS = {}
 
 def load_property_data(zip_files=None):
-    """Load property data: all inner ZIPs from 2024 and 2025."""
+    """Load property data: 202410*-202412* from 2024, all from 2025."""
     if zip_files is None:
         zip_files = glob.glob("[2][0][2][4-5].zip")
         print(f"ZIP files found: {zip_files}")
@@ -69,6 +70,11 @@ def load_property_data(zip_files=None):
                 
                 if inner_zips:
                     for inner_zip_name in inner_zips:
+                        # Filter: 2024.zip -> only 202410*-202412*, 2025.zip -> all
+                        if "2024" in zip_path:
+                            month = inner_zip_name[4:6]
+                            if not (month in ["10", "11", "12"]):
+                                continue
                         with outer_zip.open(inner_zip_name) as inner_zip_file:
                             with zipfile.ZipFile(BytesIO(inner_zip_file.read())) as inner_zip:
                                 for dat_file in inner_zip.namelist():
@@ -86,6 +92,10 @@ def load_property_data(zip_files=None):
                                                     yield record
                 elif dat_files:
                     for dat_file in dat_files:
+                        if "2024" in zip_path:
+                            month = dat_file[4:6]
+                            if not (month in ["10", "11", "12"]):
+                                continue
                         with outer_zip.open(dat_file) as f:
                             for line in f.read().decode("utf-8").splitlines():
                                 if line.startswith("B;"):
@@ -226,7 +236,7 @@ def calculate_median_house_by_suburb(df, postcode):
     return median_by_suburb
 
 def generate_median_house_price_chart(df, data_dict, chart_type="region", selected_region=None, selected_postcode=None):
-    """Generate a bar chart for median house prices with fixed date range."""
+    """Generate a refined bar chart for median house prices."""
     if not data_dict:
         return None
     os.makedirs('static', exist_ok=True)
@@ -238,46 +248,70 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
         "postcode": f"Median House Price by Postcode in {selected_region}",
         "suburb": f"Median House Price by Suburb in Postcode {selected_postcode}"
     }.get(chart_type, "Median House Price")
+    date_range = " (Oct 2024 - Mar 2025)"
 
-    date_range = " (2024 - Mar 2025)"  # Fixed range
-
-    plt.figure(figsize=(8, 4))
-    bars = plt.bar(labels, prices, color='#4682B4', edgecolor='black', width=0.6)
-    plt.title(f"{title_prefix}{date_range}", fontsize=12, pad=15)
-    plt.xlabel("Suburb" if chart_type == "suburb" else "Postcode" if chart_type == "postcode" else "Region", fontsize=10)
-    plt.ylabel("Median Price ($)", fontsize=10)
-    plt.xticks(rotation=45, ha="right", fontsize=8)
-    plt.grid(True, axis='y', alpha=0.2)
-    plt.gca().yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
-    for bar in bars:
-        plt.text(bar.get_x() + bar.get_width()/2., bar.get_height() + max(prices)*0.02,
-                 f"${bar.get_height():,}", ha='center', va='bottom', fontsize=8, color='#333')
+    fig, ax = plt.subplots(figsize=(10, 5), facecolor='#f5f5f5')
+    bars = ax.bar(labels, prices, color='#4682B4', edgecolor='black', width=0.7, alpha=0.9)
     
-    chart_path = 'static/median_house_price_chart.png'
+    # Trend line (linear regression)
+    x = np.arange(len(labels))
+    slope, intercept, _, _, _ = stats.linregress(x, prices)
+    trend_line = slope * x + intercept
+    ax.plot(labels, trend_line, color='#FF6347', linestyle='--', linewidth=2, label='Trend Line')
+
+    ax.set_title(f"{title_prefix}{date_range}", fontsize=14, weight='bold', pad=20, color='#333')
+    ax.set_xlabel("Suburb" if chart_type == "suburb" else "Postcode" if chart_type == "postcode" else "Region", fontsize=12, weight='bold', color='#555')
+    ax.set_ylabel("Median Price ($)", fontsize=12, weight='bold', color='#555')
+    ax.set_xticks(range(len(labels)))
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=10, color='#333')
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"${int(x):,}"))
+    ax.grid(True, axis='y', linestyle='--', alpha=0.3, color='#999')
+    ax.set_facecolor('#ffffff')
+
+    # Add value labels on bars
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height + max(prices)*0.02,
+                f"${int(height):,}", ha='center', va='bottom', fontsize=10, color='#333', weight='bold')
+
+    ax.legend(loc='upper left', fontsize=10, frameon=True, facecolor='#f5f5f5', edgecolor='#999')
     plt.tight_layout()
-    plt.savefig(chart_path)
+    chart_path = 'static/median_house_price_chart.png'
+    plt.savefig(chart_path, dpi=150, bbox_inches='tight')
     plt.close()
     return chart_path
 
 def generate_plots(region_data, selected_region, selected_postcode, selected_suburb):
-    """Generate histogram for price distribution with fixed date range."""
+    """Generate a refined histogram for price distribution."""
     os.makedirs('static', exist_ok=True)
 
-    prices = region_data["Price"].dropna()
-    date_range = " (2024 - Mar 2025)"  # Fixed range
+    prices = region_data["Price"].dropna() / 1e6  # Convert to millions
+    date_range = " (Oct 2024 - Mar 2025)"
 
-    plt.figure(figsize=(8, 4))
-    plt.hist(prices / 1e6, bins=20, range=(0, 3), color='#87CEEB', edgecolor='black')
-    plt.title(f"Price Distribution - {selected_region}{' - ' + selected_postcode if selected_postcode else ''}{' - ' + selected_suburb if selected_suburb else ''}{date_range}", fontsize=12)
-    plt.xlabel("Sale Price ($million)", fontsize=10)
-    plt.ylabel("Frequency", fontsize=10)
-    plt.xlim(0, 3)
-    plt.grid(True, alpha=0.2)
-    plt.gca().xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
+    fig, ax = plt.subplots(figsize=(10, 5), facecolor='#f5f5f5')
+    counts, bins, _ = ax.hist(prices, bins=20, range=(0, 3), color='#87CEEB', edgecolor='black', alpha=0.9)
+
+    # Trend line (kernel density estimate approximation)
+    from scipy.stats import gaussian_kde
+    kde = gaussian_kde(prices)
+    x = np.linspace(0, 3, 100)
+    kde_vals = kde(x) * max(counts) / max(kde(x))  # Scale to histogram height
+    ax.plot(x, kde_vals, color='#FF6347', linestyle='--', linewidth=2, label='Price Trend')
+
+    ax.set_title(f"Price Distribution - {selected_region}{' - ' + selected_postcode if selected_postcode else ''}{' - ' + selected_suburb if selected_suburb else ''}{date_range}",
+                 fontsize=14, weight='bold', pad=20, color='#333')
+    ax.set_xlabel("Sale Price ($M)", fontsize=12, weight='bold', color='#555')
+    ax.set_ylabel("Frequency", fontsize=12, weight='bold', color='#555')
+    ax.set_xlim(0, 3)
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
+    ax.grid(True, axis='y', linestyle='--', alpha=0.3, color='#999')
+    ax.set_facecolor('#ffffff')
+
+    ax.legend(loc='upper right', fontsize=10, frameon=True, facecolor='#f5f5f5', edgecolor='#999')
+    plt.tight_layout()
     price_hist_path = 'static/price_histogram.png'
-    plt.savefig(price_hist_path)
+    plt.savefig(price_hist_path, dpi=150, bbox_inches='tight')
     plt.close()
-
     return price_hist_path, None
 
 def calculate_stats(region_data):
