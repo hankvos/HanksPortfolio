@@ -63,14 +63,12 @@ def load_property_data(zip_files=None, max_inner_zips_2024=1, specific_2024_zip=
         for zip_path in sorted(zip_files):
             with zipfile.ZipFile(zip_path, "r") as outer_zip:
                 inner_zips = [f for f in outer_zip.namelist() if f.endswith(".zip")]
-                dat_files = [f in outer_zip.namelist() for f in outer_zip.namelist() if f.endswith(".DAT")]
+                dat_files = [f for f in outer_zip.namelist() if f.endswith(".DAT")]
                 if inner_zips:
                     inner_zip_count = 0
                     for inner_zip_name in sorted(inner_zips):
-                        # For 2024.zip, only process 20241230.zip
                         if "2024.zip" in zip_path and inner_zip_name != f"{specific_2024_zip}.zip":
                             continue
-                        # For 2025.zip, process all inner ZIPs; for 2024, limit to max_inner_zips_2024
                         if "2024.zip" in zip_path and inner_zip_count >= max_inner_zips_2024:
                             break
                         with outer_zip.open(inner_zip_name) as inner_zip_file:
@@ -142,10 +140,10 @@ def load_property_data(zip_files=None, max_inner_zips_2024=1, specific_2024_zip=
     df_filtered["Size"] = df_filtered["Area"].replace("", "N/A").fillna("N/A").astype(str) + " sqm"
     df_filtered["Settlement Date"] = pd.to_datetime(df_filtered["Settlement Date"], format="%Y%m%d", errors="coerce").dt.strftime("%d/%m/%Y")
 
-    logger.info(f"Loaded {len(df_filtered)} records into DataFrame.")
+    logger.info(f"Loaded {len(df_filtered)} records into DataFrame. Missing Price: {df['Sale Price'].isna().sum()}, Missing Size: {df['Area'].isna().sum()}")
     return df_filtered
 
-def get_region_data(df, region=None, postcode=None, suburb=None, property_type=None, sort_by="Address"):
+def get_region_data(df, region=None, postcode=None, suburb=None, property_type=None, sort_by="Address", min_price=0, max_price=float("inf")):
     """Filter and sort property data based on user inputs."""
     region_data = df.copy()
     if region and region in REGION_POSTCODE_LIST:
@@ -156,6 +154,7 @@ def get_region_data(df, region=None, postcode=None, suburb=None, property_type=N
         region_data = region_data[region_data["Suburb"] == suburb]
     if property_type:
         region_data = region_data[region_data["Property Type"] == property_type]
+    region_data = region_data[(region_data["Price"] >= min_price) & (region_data["Price"] <= max_price)]
     if region_data.empty:
         return pd.DataFrame()
 
@@ -252,7 +251,6 @@ def generate_plots(region_data, selected_region, selected_postcode, selected_sub
     """Generate histogram and scatter plot for price distribution and price vs size."""
     os.makedirs('static', exist_ok=True)
 
-    # Price Histogram
     prices = region_data["Price"].dropna()
     plt.figure(figsize=(8, 4))
     plt.hist(prices / 1e6, bins=20, range=(0, 3), color='#87CEEB', edgecolor='black')
@@ -266,7 +264,6 @@ def generate_plots(region_data, selected_region, selected_postcode, selected_sub
     plt.savefig(price_hist_path)
     plt.close()
 
-    # Price vs Size Scatter (if Size data is available)
     sizes = pd.to_numeric(region_data["Size"].str.replace(" sqm", ""), errors="coerce")
     if sizes.notna().sum() > 0:
         plt.figure(figsize=(8, 4))
@@ -307,6 +304,7 @@ def index():
         postcodes = suburbs = []
         price_hist_path = price_size_scatter_path = None
         stats = {"mean": 0, "median": 0, "std": 0}
+        last_update = PROPERTY_DF["Settlement Date"].max() if not PROPERTY_DF["Settlement Date"].empty else "N/A"
 
         median_by_region = calculate_median_house_by_region(PROPERTY_DF)
         median_chart_path = generate_median_house_price_chart(PROPERTY_DF, median_by_region, chart_type="region")
@@ -317,18 +315,21 @@ def index():
             selected_suburb = request.form.get("suburb", "")
             selected_property_type = request.form.get("property_type", "HOUSE")
             sort_by = request.form.get("sort_by", "Address")
+            min_price = request.form.get("min_price", 0, type=float)
+            max_price = request.form.get("max_price", float("inf"), type=float)
 
             if selected_region in REGION_POSTCODE_LIST:
                 postcodes = sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(REGION_POSTCODE_LIST[selected_region])]["Postcode"].unique())
             if selected_postcode:
                 suburbs = sorted(PROPERTY_DF[PROPERTY_DF["Postcode"] == selected_postcode]["Suburb"].unique())
 
-            region_data = get_region_data(PROPERTY_DF, selected_region, selected_postcode, selected_suburb, selected_property_type, sort_by)
+            region_data = get_region_data(PROPERTY_DF, selected_region, selected_postcode, selected_suburb, selected_property_type, sort_by, min_price, max_price)
             if not region_data.empty:
-                properties = region_data[["Address", "Price", "Size", "Settlement Date"]].to_dict("records")
+                properties = region_data[["Address", "Price", "Size", "Settlement Date", "Property Type"]].to_dict("records")
                 avg_price = calculate_avg_price(region_data)
                 price_hist_path, price_size_scatter_path = generate_plots(region_data, selected_region, selected_postcode, selected_suburb)
                 stats = calculate_stats(region_data)
+                similar_count = PROPERTY_DF[(PROPERTY_DF["Postcode"] == selected_postcode) & (PROPERTY_DF["Property Type"] == selected_property_type)].shape[0] if selected_postcode else 0
 
                 if selected_region and not selected_postcode:
                     median_by_postcode = calculate_median_house_by_postcode(PROPERTY_DF, selected_region)
@@ -353,14 +354,17 @@ def index():
             price_hist_path=price_hist_path,
             stats=stats,
             median_chart_path=median_chart_path,
-            price_size_scatter_path=price_size_scatter_path
+            price_size_scatter_path=price_size_scatter_path,
+            last_update=last_update,
+            similar_count=similar_count if 'similar_count' in locals() else 0
         )
     except Exception as e:
         logger.error(f"Error in index: {str(e)}")
         return render_template(
             "index.html",
             error=str(e),
-            regions=sorted(REGION_POSTCODE_LIST.keys())
+            regions=sorted(REGION_POSTCODE_LIST.keys()),
+            last_update=last_update
         )
 
 @app.route("/get_postcodes", methods=["GET"])
