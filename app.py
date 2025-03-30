@@ -44,7 +44,7 @@ PROPERTY_DF = None
 REGION_SUBURBS = {}
 
 def load_property_data(zip_files=None):
-    """Load property data: all inner ZIPs from 2025, only 20241230 from 2024."""
+    """Load property data: all inner ZIPs from 2025, only 202412* from 2024."""
     if zip_files is None:
         zip_files = glob.glob("[2][0][2][4-5].zip")
         print(f"ZIP files found: {zip_files}")
@@ -68,8 +68,8 @@ def load_property_data(zip_files=None):
                 
                 if inner_zips:
                     for inner_zip_name in inner_zips:
-                        # Filter: 2024.zip -> only 20241230, 2025.zip -> all
-                        if "2024" in zip_path and "20241230" not in inner_zip_name:
+                        # Filter: 2024.zip -> only 202412*, 2025.zip -> all
+                        if "2024" in zip_path and not inner_zip_name.startswith("202412"):
                             continue
                         with outer_zip.open(inner_zip_name) as inner_zip_file:
                             with zipfile.ZipFile(BytesIO(inner_zip_file.read())) as inner_zip:
@@ -88,7 +88,7 @@ def load_property_data(zip_files=None):
                                                     yield record
                 elif dat_files:
                     for dat_file in dat_files:
-                        if "2024" in zip_path and "20241230" not in dat_file:
+                        if "2024" in zip_path and not dat_file.startswith("202412"):
                             continue
                         with outer_zip.open(dat_file) as f:
                             for line in f.read().decode("utf-8").splitlines():
@@ -259,7 +259,7 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
     return chart_path
 
 def generate_plots(region_data, selected_region, selected_postcode, selected_suburb):
-    """Generate histogram and scatter plot for price distribution and price vs size."""
+    """Generate histogram for price distribution."""
     os.makedirs('static', exist_ok=True)
 
     # Price Histogram
@@ -276,23 +276,7 @@ def generate_plots(region_data, selected_region, selected_postcode, selected_sub
     plt.savefig(price_hist_path)
     plt.close()
 
-    # Price vs Size Scatter (if Size data is available)
-    sizes = pd.to_numeric(region_data["Size"].str.replace(" sqm", ""), errors="coerce")
-    if sizes.notna().sum() > 0:
-        plt.figure(figsize=(8, 4))
-        plt.scatter(sizes, prices / 1e6, alpha=0.5, color='#FF6347')
-        plt.title(f"Price vs Size - {selected_region}{' - ' + selected_postcode if selected_postcode else ''}{' - ' + selected_suburb if selected_suburb else ''}", fontsize=12)
-        plt.xlabel("Size (sqm)", fontsize=10)
-        plt.ylabel("Sale Price ($million)", fontsize=10)
-        plt.grid(True, alpha=0.2)
-        plt.gca().yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
-        price_size_scatter_path = 'static/price_size_scatter.png'
-        plt.savefig(price_size_scatter_path)
-        plt.close()
-    else:
-        price_size_scatter_path = None
-
-    return price_hist_path, price_size_scatter_path
+    return price_hist_path, None  # No Price vs Size chart
 
 def calculate_stats(region_data):
     """Calculate mean, median, and standard deviation of prices."""
@@ -314,7 +298,7 @@ def index():
         avg_price = 0
         sort_by = "Address"
         postcodes = suburbs = []
-        price_hist_path = price_size_scatter_path = None
+        price_hist_path = None
         stats = {"mean": 0, "median": 0, "std": 0}
         data_source = "Data provided by NSW Valuer General Property Sales Information, last updated March 24, 2025"
 
@@ -337,7 +321,7 @@ def index():
             if not region_data.empty:
                 properties = region_data[["Address", "Price", "Size", "Settlement Date"]].to_dict("records")
                 avg_price = calculate_avg_price(region_data)
-                price_hist_path, price_size_scatter_path = generate_plots(region_data, selected_region, selected_postcode, selected_suburb)
+                price_hist_path, _ = generate_plots(region_data, selected_region, selected_postcode, selected_suburb)
                 stats = calculate_stats(region_data)
 
                 if selected_region and not selected_postcode:
@@ -362,7 +346,7 @@ def index():
             price_hist_path=price_hist_path,
             stats=stats,
             median_chart_path=median_chart_path,
-            price_size_scatter_path=price_size_scatter_path,
+            price_size_scatter_path=None,  # Removed
             data_source=data_source
         )
     except Exception as e:
