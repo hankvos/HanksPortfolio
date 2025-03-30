@@ -73,6 +73,8 @@
                 <option value="HOUSE" {% if selected_property_type == "HOUSE" %}selected{% endif %}>House</option>
                 <option value="UNIT" {% if selected_property_type == "UNIT" %}selected{% endif %}>Unit</option>
                 <option value="VACANT LAND" {% if selected_property_type == "VACANT LAND" %}selected{% endif %}>Vacant Land</option>
+                <option value="COMMERCIAL" {% if selected_property_type == "COMMERCIAL" %}selected{% endif %}>Commercial</option>
+                <option value="SHOP" {% if selected_property_type == "SHOP" %}selected{% endif %}>Shop</option>
             </select>
 
             <label for="sort_by">Sort By:</label>
@@ -102,6 +104,7 @@
                     <th>Price ($)</th>
                     <th>Size</th>
                     <th>Settlement Date</th>
+                    <th>Map</th>
                 </tr>
                 {% for prop in properties %}
                     <tr>
@@ -109,6 +112,7 @@
                         <td>{{ prop.Price }}</td>
                         <td>{{ prop.Size }}</td>
                         <td>{{ prop["Settlement Date"] }}</td>
+                        <td><a href="https://www.google.com/maps/place/{{ prop.Address | replace(' ', '+') }}" target="_blank">Map</a></td>
                     </tr>
                 {% endfor %}
             </table>

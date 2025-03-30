@@ -59,3 +59,8 @@ th {
     background: #4682B4;
     color: white;
 }
+
+th:last-child, td:last-child {
+    text-align: center;
+    width: 60px; /* Fixed width for the Map column */
+}
