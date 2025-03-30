@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NSW Property Analyser</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script>
@@ -35,56 +36,66 @@
     </script>
 </head>
 <body>
-    <h1>NSW Property Analyser</h1>
-    <p>{{ data_source }}</p>
-    {% if error %}
-        <p style="color: red;">Error: {{ error }}</p>
-    {% endif %}
-
-    <form method="POST">
-        <select name="region" id="region" onchange="updatePostcodes()">
-            <option value="">Select Region</option>
-            {% for region in regions %}
-                <option value="{{ region }}" {% if region == selected_region %}selected{% endif %}>{{ region }}</option>
-            {% endfor %}
-        </select>
-        <select name="postcode" id="postcode" onchange="updateSuburbs()">
-            <option value="">Select Postcode</option>
-            {% for postcode in postcodes %}
-                <option value="{{ postcode }}" {% if postcode == selected_postcode %}selected{% endif %}>{{ postcode }}</option>
-            {% endfor %}
-        </select>
-        <select name="suburb" id="suburb">
-            <option value="">Select Suburb</option>
-            {% for suburb in suburbs %}
-                <option value="{{ suburb }}" {% if suburb == selected_suburb %}selected{% endif %}>{{ suburb }}</option>
-            {% endfor %}
-        </select>
-        <button type="submit">Analyze</button>
-    </form>
-
-    {% if properties %}
-        <h2>Analysis</h2>
-        <p>Average Price: ${{ avg_price }}</p>
-        <table>
-            <tr>
-                <th>Address</th>
-                <th>Price ($)</th>
-                <th>Size</th>
-                <th>Settlement Date</th>
-            </tr>
-            {% for prop in properties %}
-                <tr>
-                    <td>{{ prop.Address }}</td>
-                    <td>{{ prop.Price }}</td>
-                    <td>{{ prop.Size }}</td>
-                    <td>{{ prop["Settlement Date"] }}</td>
-                </tr>
-            {% endfor %}
-        </table>
-        {% if price_hist_path %}
-            <img src="{{ url_for('static', filename=price_hist_path.split('/')[-1]) }}" alt="Price Histogram">
+    <div class="container">
+        <h1>NSW Property Analyser</h1>
+        <p>{{ data_source }}</p>
+        {% if error %}
+            <p class="error">Error: {{ error }}</p>
         {% endif %}
-    {% endif %}
+
+        <form method="POST">
+            <label for="region">Region:</label>
+            <select name="region" id="region" onchange="updatePostcodes()">
+                <option value="">Select Region</option>
+                {% for region in regions %}
+                    <option value="{{ region }}" {% if region == selected_region %}selected{% endif %}>{{ region }}</option>
+                {% endfor %}
+            </select>
+
+            <label for="postcode">Postcode:</label>
+            <select name="postcode" id="postcode" onchange="updateSuburbs()">
+                <option value="">Select Postcode</option>
+                {% for postcode in postcodes %}
+                    <option value="{{ postcode }}" {% if postcode == selected_postcode %}selected{% endif %}>{{ postcode }}</option>
+                {% endfor %}
+            </select>
+
+            <label for="suburb">Suburb:</label>
+            <select name="suburb" id="suburb">
+                <option value="">Select Suburb</option>
+                {% for suburb in suburbs %}
+                    <option value="{{ suburb }}" {% if suburb == selected_suburb %}selected{% endif %}>{{ suburb }}</option>
+                {% endfor %}
+            </select>
+
+            <button type="submit">Analyze</button>
+        </form>
+
+        {% if properties %}
+            <h2>Analysis</h2>
+            <p>Average Price: ${{ avg_price }}</p>
+            <table>
+                <tr>
+                    <th>Address</th>
+                    <th>Price ($)</th>
+                    <th>Size</th>
+                    <th>Settlement Date</th>
+                </tr>
+                {% for prop in properties %}
+                    <tr>
+                        <td>{{ prop.Address }}</td>
+                        <td>{{ prop.Price }}</td>
+                        <td>{{ prop.Size }}</td>
+                        <td>{{ prop["Settlement Date"] }}</td>
+                    </tr>
+                {% endfor %}
+            </table>
+            {% if price_hist_path %}
+                <div class="chart">
+                    <img src="{{ url_for('static', filename=price_hist_path.split('/')[-1]) }}" alt="Price Histogram">
+                </div>
+            {% endif %}
+        {% endif %}
+    </div>
 </body>
 </html>

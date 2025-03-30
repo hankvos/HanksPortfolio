@@ -1,10 +1,47 @@
 body {
     font-family: Arial, sans-serif;
     margin: 20px;
+    background: #f5f5f5;
+}
+
+.container {
+    max-width: 1200px;
+    margin: auto;
+    padding: 20px;
+    background: white;
 }
 
 h1 {
+    color: #333;
     text-align: center;
+}
+
+h2 {
+    color: #333;
+}
+
+label {
+    margin-right: 10px;
+}
+
+select, button {
+    padding: 8px;
+    margin: 5px;
+}
+
+button {
+    background: #4682B4;
+    color: white;
+    border: none;
+}
+
+.error {
+    color: red;
+}
+
+.chart img {
+    max-width: 100%;
+    margin: 20px 0;
 }
 
 table {
@@ -14,16 +51,11 @@ table {
 }
 
 th, td {
-    border: 1px solid black;
-    padding: 8px;
-    text-align: left;
+    padding: 10px;
+    border: 1px solid #ddd;
 }
 
 th {
-    background-color: #f2f2f2;
-}
-
-img {
-    max-width: 100%;
-    margin-top: 20px;
+    background: #4682B4;
+    color: white;
 }

@@ -8,6 +8,7 @@ from datetime import datetime
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 import os
 import logging
@@ -28,6 +29,7 @@ REGION_POSTCODES = {
 }
 
 def expand_postcode_ranges(ranges):
+    """Expand postcode ranges (e.g., '2250-2252' -> ['2250', '2251', '2252'])."""
     postcodes = []
     for r in ranges:
         if "-" in r:
@@ -39,8 +41,10 @@ def expand_postcode_ranges(ranges):
 
 REGION_POSTCODE_LIST = {region: expand_postcode_ranges(ranges) for region, ranges in REGION_POSTCODES.items()}
 PROPERTY_DF = None
+REGION_SUBURBS = {}
 
 def load_property_data(zip_files=None, max_inner_zips_2024=1, specific_2024_zip="20241230"):
+    """Load property data: all 2025 inner ZIPs, specific 2024 inner ZIP."""
     if zip_files is None:
         zip_files = glob.glob("[2][0][2][4-5].zip")
         logger.info(f"ZIP files found: {zip_files}")
@@ -69,17 +73,16 @@ def load_property_data(zip_files=None, max_inner_zips_2024=1, specific_2024_zip=
                             break
                         with outer_zip.open(inner_zip_name) as inner_zip_file:
                             with zipfile.ZipFile(BytesIO(inner_zip_file.read())) as inner_zip:
-                                for dat_file in inner_zip.namelist():
-                                    if dat_file.endswith(".DAT"):
-                                        with inner_zip.open(dat_file) as f:
-                                            for line in f.read().decode("utf-8").splitlines():
-                                                if line.startswith("B;"):
-                                                    record = line.split(";")
-                                                    if len(record) < 19:
-                                                        record.extend([""] * (19 - len(record)))
-                                                    elif len(record) > 19:
-                                                        record = record[:19]
-                                                    yield record
+                                for dat_file in [f for f in inner_zip.namelist() if f.endswith(".DAT")]:
+                                    with inner_zip.open(dat_file) as f:
+                                        for line in f.read().decode("utf-8").splitlines():
+                                            if line.startswith("B;"):
+                                                record = line.split(";")
+                                                if len(record) < 19:
+                                                    record.extend([""] * (19 - len(record)))
+                                                elif len(record) > 19:
+                                                    record = record[:19]
+                                                yield record
                         inner_zip_count += 1
                 elif dat_files:
                     for dat_file in dat_files:
@@ -140,7 +143,8 @@ def load_property_data(zip_files=None, max_inner_zips_2024=1, specific_2024_zip=
     logger.info(f"Loaded {len(df_filtered)} records into DataFrame.")
     return df_filtered
 
-def get_region_data(df, region=None, postcode=None, suburb=None):
+def get_region_data(df, region=None, postcode=None, suburb=None, property_type=None, sort_by="Address"):
+    """Filter and sort property data based on user inputs."""
     region_data = df.copy()
     if region and region in REGION_POSTCODE_LIST:
         region_data = region_data[region_data["Postcode"].isin(REGION_POSTCODE_LIST[region])]
@@ -148,59 +152,80 @@ def get_region_data(df, region=None, postcode=None, suburb=None):
         region_data = region_data[region_data["Postcode"] == postcode]
     if suburb:
         region_data = region_data[region_data["Suburb"] == suburb]
-    return region_data
+    if property_type:
+        region_data = region_data[region_data["Property Type"] == property_type]
+    if region_data.empty:
+        return pd.DataFrame()
+
+    if sort_by == "Address":
+        region_data["HouseNumNumeric"] = pd.to_numeric(region_data["House Number"].str.extract(r'^(\d+)')[0], errors="coerce").fillna(999999)
+        region_data = region_data.sort_values(["Street Name", "HouseNumNumeric"])
+    return region_data.drop(columns=["HouseNumNumeric"], errors="ignore")
 
 def calculate_avg_price(properties):
+    """Calculate average price from a DataFrame."""
     return round(properties["Price"].mean()) if not properties["Price"].empty else 0
 
-def generate_price_histogram(region_data, selected_region, selected_postcode, selected_suburb):
+def generate_plots(region_data, selected_region, selected_postcode, selected_suburb):
+    """Generate histogram for price distribution."""
     os.makedirs('static', exist_ok=True)
+
     prices = region_data["Price"].dropna()
     plt.figure(figsize=(8, 4))
-    plt.hist(prices / 1e6, bins=20, range=(0, 3), color='skyblue', edgecolor='black')
-    plt.title(f"Price Distribution - {selected_region}{' - ' + selected_postcode if selected_postcode else ''}{' - ' + selected_suburb if selected_suburb else ''}")
-    plt.xlabel("Sale Price ($million)")
-    plt.ylabel("Frequency")
+    plt.hist(prices / 1e6, bins=20, range=(0, 3), color='#87CEEB', edgecolor='black')
+    plt.title(f"Price Distribution - {selected_region}{' - ' + selected_postcode if selected_postcode else ''}{' - ' + selected_suburb if selected_suburb else ''}", fontsize=12)
+    plt.xlabel("Sale Price ($million)", fontsize=10)
+    plt.ylabel("Frequency", fontsize=10)
     plt.xlim(0, 3)
-    chart_path = 'static/price_histogram.png'
-    plt.savefig(chart_path)
+    plt.grid(True, alpha=0.2)
+    plt.gca().xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
+    price_hist_path = 'static/price_histogram.png'
+    plt.savefig(price_hist_path)
     plt.close()
-    return chart_path
+
+    return price_hist_path, None  # No scatter plot for simplicity
 
 @app.route("/", methods=["GET", "POST"])
 def index():
+    """Main route for rendering the property analyzer interface."""
     logger.info("Entering index route")
     try:
         regions = sorted(REGION_POSTCODE_LIST.keys())
         selected_region = selected_postcode = selected_suburb = None
+        selected_property_type = "HOUSE"
         properties = []
         avg_price = 0
         price_hist_path = None
         # Data source info
         data_source = "Data provided by NSW Valuer General Property Sales Information, last updated March 24, 2025"
-        
-        if request.method == "POST":
+
+        if request.method == "POST" and request.form.get("region"):
             selected_region = request.form.get("region")
-            selected_postcode = request.form.get("postcode")
-            selected_suburb = request.form.get("suburb")
-            
-            region_data = get_region_data(PROPERTY_DF, selected_region, selected_postcode, selected_suburb)
+            selected_postcode = request.form.get("postcode", "")
+            selected_suburb = request.form.get("suburb", "")
+            selected_property_type = request.form.get("property_type", "HOUSE")
+
+            if selected_region in REGION_POSTCODE_LIST:
+                postcodes = sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(REGION_POSTCODE_LIST[selected_region])]["Postcode"].unique())
+            if selected_postcode:
+                suburbs = sorted(PROPERTY_DF[PROPERTY_DF["Postcode"] == selected_postcode]["Suburb"].unique())
+
+            region_data = get_region_data(PROPERTY_DF, selected_region, selected_postcode, selected_suburb, selected_property_type)
             if not region_data.empty:
                 properties = region_data[["Address", "Price", "Size", "Settlement Date"]].to_dict("records")
                 avg_price = calculate_avg_price(region_data)
-                price_hist_path = generate_price_histogram(region_data, selected_region, selected_postcode, selected_suburb)
+                price_hist_path, _ = generate_plots(region_data, selected_region, selected_postcode, selected_suburb)
 
-        postcodes = sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(REGION_POSTCODE_LIST[selected_region])]["Postcode"].unique()) if selected_region else []
-        suburbs = sorted(PROPERTY_DF[PROPERTY_DF["Postcode"] == selected_postcode]["Suburb"].unique()) if selected_postcode else []
-
+        logger.info("Rendering template")
         return render_template(
             "index.html",
             regions=regions,
-            postcodes=postcodes,
-            suburbs=suburbs,
+            postcodes=postcodes if 'postcodes' in locals() else [],
+            suburbs=suburbs if 'suburbs' in locals() else [],
             selected_region=selected_region,
             selected_postcode=selected_postcode,
             selected_suburb=selected_suburb,
+            selected_property_type=selected_property_type,
             properties=properties,
             avg_price=avg_price,
             price_hist_path=price_hist_path,
@@ -208,10 +233,16 @@ def index():
         )
     except Exception as e:
         logger.error(f"Error in index: {str(e)}")
-        return render_template("index.html", error=str(e), regions=sorted(REGION_POSTCODE_LIST.keys()))
+        return render_template(
+            "index.html",
+            error=str(e),
+            regions=sorted(REGION_POSTCODE_LIST.keys()),
+            data_source=data_source
+        )
 
 @app.route("/get_postcodes", methods=["GET"])
 def get_postcodes():
+    """Return postcodes for a selected region."""
     region = request.args.get("region")
     if region in REGION_POSTCODE_LIST:
         return jsonify(sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(REGION_POSTCODE_LIST[region])]["Postcode"].unique()))
@@ -219,6 +250,7 @@ def get_postcodes():
 
 @app.route("/get_suburbs", methods=["GET"])
 def get_suburbs():
+    """Return suburbs for a selected region and postcode."""
     region = request.args.get("region")
     postcode = request.args.get("postcode")
     if region in REGION_POSTCODE_LIST and postcode:
@@ -228,9 +260,12 @@ def get_suburbs():
 
 # Initialize data at startup
 PROPERTY_DF = load_property_data()
+REGION_SUBURBS = {region: sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(postcodes)]["Suburb"].unique())
+                  for region, postcodes in REGION_POSTCODE_LIST.items()}
 
 if os.environ.get("RENDER"):
     port = int(os.environ.get("PORT", 10000))
+    logger.info(f"Starting on 0.0.0.0:{port}")
     app.run(host="0.0.0.0", port=port, debug=False)
 else:
     app.run(debug=True)
