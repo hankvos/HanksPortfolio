@@ -1,4 +1,5 @@
 from flask import Flask
+import os  # Added this!
 
 app = Flask(__name__)
 
@@ -7,7 +8,6 @@ def index():
     return "Hello, Property Analyzer is live!"
 
 if os.environ.get("RENDER"):
-    import os
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False)
 else:
