@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
 import os
+import urllib.parse  # For URL encoding
 
 app = Flask(__name__)
 
@@ -68,7 +69,6 @@ def load_property_data(zip_files=None):
                 
                 if inner_zips:
                     for inner_zip_name in inner_zips:
-                        # Filter: 2024.zip -> only 202412*, 2025.zip -> all
                         if "2024" in zip_path and not inner_zip_name.startswith("202412"):
                             continue
                         with outer_zip.open(inner_zip_name) as inner_zip_file:
@@ -83,7 +83,7 @@ def load_property_data(zip_files=None):
                                                         record.extend([""] * (19 - len(record)))
                                                     elif len(record) > 19:
                                                         record = record[:19]
-                                                    settlement_date = record[14]  # 15th field
+                                                    settlement_date = record[14]
                                                     date_counts[settlement_date] = date_counts.get(settlement_date, 0) + 1
                                                     yield record
                 elif dat_files:
@@ -147,6 +147,9 @@ def load_property_data(zip_files=None):
         lambda row: f"{row['Unit Number']} / {row['House Number']} {row['Street Name']}, {row['Suburb']} NSW {row['Postcode']}"
         if row["Property Type"] == "UNIT" and row["Unit Number"]
         else f"{row['House Number']} {row['Street Name']}, {row['Suburb']} NSW {row['Postcode']}", axis=1
+    )
+    df_filtered["Map Link"] = df_filtered["Address"].apply(
+        lambda addr: f"https://www.google.com/maps/place/{urllib.parse.quote_plus(addr)}"
     )
     df_filtered = df_filtered.rename(columns={"Sale Price": "Price"})
     df_filtered["Price"] = df_filtered["Price"].astype(float).round(0)
@@ -222,7 +225,7 @@ def calculate_median_house_by_suburb(df, postcode):
     return median_by_suburb
 
 def generate_median_house_price_chart(df, data_dict, chart_type="region", selected_region=None, selected_postcode=None):
-    """Generate a bar chart for median house prices."""
+    """Generate a bar chart for median house prices with min/max date range."""
     if not data_dict:
         return None
     os.makedirs('static', exist_ok=True)
@@ -235,10 +238,11 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
         "suburb": f"Median House Price by Suburb in Postcode {selected_postcode}"
     }.get(chart_type, "Median House Price")
 
-    house_data = df[df["Property Type"] == "HOUSE"].copy()
-    house_data["Settlement Date"] = pd.to_datetime(house_data["Settlement Date"], format="%d/%m/%Y", errors="coerce")
-    date_range = f" (Jan 2024 - {datetime.now().strftime('%b %Y')})" if house_data["Settlement Date"].dropna().empty else \
-                 f" ({house_data['Settlement Date'].min().strftime('%b %Y')} - {house_data['Settlement Date'].max().strftime('%b %Y')})"
+    # Use min/max Settlement Dates from all data
+    df["Settlement Date Raw"] = pd.to_datetime(df["Settlement Date"], format="%d/%m/%Y", errors="coerce")
+    min_date = df["Settlement Date Raw"].min().strftime("%b %Y")
+    max_date = df["Settlement Date Raw"].max().strftime("%b %Y")
+    date_range = f" ({min_date} - {max_date})"
 
     plt.figure(figsize=(8, 4))
     bars = plt.bar(labels, prices, color='#4682B4', edgecolor='black', width=0.6)
@@ -259,14 +263,19 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
     return chart_path
 
 def generate_plots(region_data, selected_region, selected_postcode, selected_suburb):
-    """Generate histogram for price distribution."""
+    """Generate histogram for price distribution with min/max date range."""
     os.makedirs('static', exist_ok=True)
 
     # Price Histogram
     prices = region_data["Price"].dropna()
+    region_data["Settlement Date Raw"] = pd.to_datetime(region_data["Settlement Date"], format="%d/%m/%Y", errors="coerce")
+    min_date = region_data["Settlement Date Raw"].min().strftime("%b %Y")
+    max_date = region_data["Settlement Date Raw"].max().strftime("%b %Y")
+    date_range = f" ({min_date} - {max_date})"
+
     plt.figure(figsize=(8, 4))
     plt.hist(prices / 1e6, bins=20, range=(0, 3), color='#87CEEB', edgecolor='black')
-    plt.title(f"Price Distribution - {selected_region}{' - ' + selected_postcode if selected_postcode else ''}{' - ' + selected_suburb if selected_suburb else ''}", fontsize=12)
+    plt.title(f"Price Distribution - {selected_region}{' - ' + selected_postcode if selected_postcode else ''}{' - ' + selected_suburb if selected_suburb else ''}{date_range}", fontsize=12)
     plt.xlabel("Sale Price ($million)", fontsize=10)
     plt.ylabel("Frequency", fontsize=10)
     plt.xlim(0, 3)
@@ -276,7 +285,7 @@ def generate_plots(region_data, selected_region, selected_postcode, selected_sub
     plt.savefig(price_hist_path)
     plt.close()
 
-    return price_hist_path, None  # No Price vs Size chart
+    return price_hist_path, None
 
 def calculate_stats(region_data):
     """Calculate mean, median, and standard deviation of prices."""
@@ -319,7 +328,7 @@ def index():
 
             region_data = get_region_data(PROPERTY_DF, selected_region, selected_postcode, selected_suburb, selected_property_type, sort_by)
             if not region_data.empty:
-                properties = region_data[["Address", "Price", "Size", "Settlement Date"]].to_dict("records")
+                properties = region_data[["Address", "Price", "Size", "Settlement Date", "Map Link"]].to_dict("records")
                 avg_price = calculate_avg_price(region_data)
                 price_hist_path, _ = generate_plots(region_data, selected_region, selected_postcode, selected_suburb)
                 stats = calculate_stats(region_data)
@@ -346,7 +355,7 @@ def index():
             price_hist_path=price_hist_path,
             stats=stats,
             median_chart_path=median_chart_path,
-            price_size_scatter_path=None,  # Removed
+            price_size_scatter_path=None,
             data_source=data_source
         )
     except Exception as e:

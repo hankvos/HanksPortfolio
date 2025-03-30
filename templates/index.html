@@ -65,8 +65,8 @@
             text-align: left;
         }
         th {
-            background-color: #4682B4;  /* Steel Blue */
-            color: white;              /* White text */
+            background-color: #4682B4;
+            color: white;
             font-weight: bold;
         }
         img {
@@ -151,6 +151,7 @@
                         <th>Price</th>
                         <th>Size</th>
                         <th>Settlement Date</th>
+                        <th>Map</th>
                     </tr>
                     {% for prop in properties %}
                         <tr>
@@ -158,6 +159,7 @@
                             <td>${{ prop["Price"] | intcomma }}</td>
                             <td>{{ prop["Size"] }}</td>
                             <td>{{ prop["Settlement Date"] }}</td>
+                            <td><a href="{{ prop['Map Link'] }}" target="_blank">View</a></td>
                         </tr>
                     {% endfor %}
                 </table>
