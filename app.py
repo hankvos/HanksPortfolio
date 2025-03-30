@@ -11,13 +11,8 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
 import os
-import logging
 
 app = Flask(__name__)
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Define regions and their postcode ranges
 REGION_POSTCODES = {
@@ -43,11 +38,11 @@ REGION_POSTCODE_LIST = {region: expand_postcode_ranges(ranges) for region, range
 PROPERTY_DF = None
 REGION_SUBURBS = {}
 
-def load_property_data(zip_files=None, max_inner_zips_2024=1, specific_2024_zip="20241230"):
-    """Load property data: all 2025 inner ZIPs, specific 2024 inner ZIP."""
+def load_property_data(zip_files=None, max_inner_zips=1):
+    """Load property data from ZIP files, limiting inner ZIPs to reduce memory."""
     if zip_files is None:
         zip_files = glob.glob("[2][0][2][4-5].zip")
-        logger.info(f"ZIP files found: {zip_files}")
+        print(f"ZIP files found: {zip_files}")
     if not zip_files:
         raise ValueError("No ZIP files found for 2024-2025.")
 
@@ -60,16 +55,14 @@ def load_property_data(zip_files=None, max_inner_zips_2024=1, specific_2024_zip=
     ]
 
     def record_generator():
+        inner_zip_count = 0
         for zip_path in sorted(zip_files):
             with zipfile.ZipFile(zip_path, "r") as outer_zip:
                 inner_zips = [f for f in outer_zip.namelist() if f.endswith(".zip")]
                 dat_files = [f for f in outer_zip.namelist() if f.endswith(".DAT")]
                 if inner_zips:
-                    inner_zip_count = 0
-                    for inner_zip_name in sorted(inner_zips):
-                        if "2024.zip" in zip_path and inner_zip_name != f"{specific_2024_zip}.zip":
-                            continue
-                        if "2024.zip" in zip_path and inner_zip_count >= max_inner_zips_2024:
+                    for inner_zip_name in inner_zips:
+                        if inner_zip_count >= max_inner_zips:
                             break
                         with outer_zip.open(inner_zip_name) as inner_zip_file:
                             with zipfile.ZipFile(BytesIO(inner_zip_file.read())) as inner_zip:
@@ -140,7 +133,7 @@ def load_property_data(zip_files=None, max_inner_zips_2024=1, specific_2024_zip=
     df_filtered["Size"] = df_filtered["Area"].replace("", "N/A").fillna("N/A").astype(str) + " sqm"
     df_filtered["Settlement Date"] = pd.to_datetime(df_filtered["Settlement Date"], format="%Y%m%d", errors="coerce").dt.strftime("%d/%m/%Y")
 
-    logger.info(f"Loaded {len(df_filtered)} records into DataFrame.")
+    print(f"Loaded {len(df_filtered)} records into DataFrame.")
     return df_filtered
 
 def get_region_data(df, region=None, postcode=None, suburb=None, property_type=None, sort_by="Address"):
@@ -160,16 +153,97 @@ def get_region_data(df, region=None, postcode=None, suburb=None, property_type=N
     if sort_by == "Address":
         region_data["HouseNumNumeric"] = pd.to_numeric(region_data["House Number"].str.extract(r'^(\d+)')[0], errors="coerce").fillna(999999)
         region_data = region_data.sort_values(["Street Name", "HouseNumNumeric"])
-    return region_data.drop(columns=["HouseNumNumeric"], errors="ignore")
+    elif sort_by == "Price":
+        region_data = region_data.sort_values("Price")
+    elif sort_by == "Block Size":
+        region_data["SizeNumeric"] = pd.to_numeric(region_data["Size"].str.replace(" sqm", ""), errors="coerce").fillna(0)
+        region_data = region_data.sort_values("SizeNumeric")
+    elif sort_by == "Settlement Date":
+        region_data["SaleDateNumeric"] = pd.to_datetime(region_data["Settlement Date"], format="%d/%m/%Y", errors="coerce")
+        region_data = region_data.sort_values("SaleDateNumeric")
+    return region_data.drop(columns=["HouseNumNumeric", "SizeNumeric", "SaleDateNumeric"], errors="ignore")
 
 def calculate_avg_price(properties):
     """Calculate average price from a DataFrame."""
     return round(properties["Price"].mean()) if not properties["Price"].empty else 0
 
-def generate_plots(region_data, selected_region, selected_postcode, selected_suburb):
-    """Generate histogram for price distribution."""
+def calculate_median_house_by_region(df):
+    """Calculate median house price by region."""
+    median_by_region = {}
+    for region, postcodes in REGION_POSTCODE_LIST.items():
+        region_data = df[(df["Postcode"].isin(postcodes)) & (df["Property Type"] == "HOUSE")]
+        if not region_data.empty:
+            median_price = region_data["Price"].median()
+            if np.isfinite(median_price):
+                median_by_region[region] = {"price": int(median_price)}
+    return median_by_region
+
+def calculate_median_house_by_postcode(df, region):
+    """Calculate median house price by postcode within a region."""
+    median_by_postcode = {}
+    region_data = df[(df["Postcode"].isin(REGION_POSTCODE_LIST[region])) & (df["Property Type"] == "HOUSE")]
+    for postcode in sorted(region_data["Postcode"].unique()):
+        postcode_data = region_data[region_data["Postcode"] == postcode]
+        if not postcode_data.empty:
+            median_price = postcode_data["Price"].median()
+            if np.isfinite(median_price):
+                median_by_postcode[postcode] = {"price": int(median_price)}
+    return median_by_postcode
+
+def calculate_median_house_by_suburb(df, postcode):
+    """Calculate median house price by suburb within a postcode."""
+    median_by_suburb = {}
+    postcode_data = df[(df["Postcode"] == postcode) & (df["Property Type"] == "HOUSE")]
+    for suburb in sorted(postcode_data["Suburb"].unique()):
+        suburb_data = postcode_data[postcode_data["Suburb"] == suburb]
+        if not suburb_data.empty:
+            median_price = suburb_data["Price"].median()
+            if np.isfinite(median_price):
+                median_by_suburb[suburb] = {"price": int(median_price)}
+    return median_by_suburb
+
+def generate_median_house_price_chart(df, data_dict, chart_type="region", selected_region=None, selected_postcode=None):
+    """Generate a bar chart for median house prices."""
+    if not data_dict:
+        return None
     os.makedirs('static', exist_ok=True)
 
+    labels = list(data_dict.keys())
+    prices = [data["price"] for data in data_dict.values()]
+    title_prefix = {
+        "region": "Median House Price by Region",
+        "postcode": f"Median House Price by Postcode in {selected_region}",
+        "suburb": f"Median House Price by Suburb in Postcode {selected_postcode}"
+    }.get(chart_type, "Median House Price")
+
+    house_data = df[df["Property Type"] == "HOUSE"].copy()
+    house_data["Settlement Date"] = pd.to_datetime(house_data["Settlement Date"], format="%d/%m/%Y", errors="coerce")
+    date_range = f" (Jan 2024 - {datetime.now().strftime('%b %Y')})" if house_data["Settlement Date"].dropna().empty else \
+                 f" ({house_data['Settlement Date'].min().strftime('%b %Y')} - {house_data['Settlement Date'].max().strftime('%b %Y')})"
+
+    plt.figure(figsize=(8, 4))
+    bars = plt.bar(labels, prices, color='#4682B4', edgecolor='black', width=0.6)
+    plt.title(f"{title_prefix}{date_range}", fontsize=12, pad=15)
+    plt.xlabel("Suburb" if chart_type == "suburb" else "Postcode" if chart_type == "postcode" else "Region", fontsize=10)
+    plt.ylabel("Median Price ($)", fontsize=10)
+    plt.xticks(rotation=45, ha="right", fontsize=8)
+    plt.grid(True, axis='y', alpha=0.2)
+    plt.gca().yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
+    for bar in bars:
+        plt.text(bar.get_x() + bar.get_width()/2., bar.get_height() + max(prices)*0.02,
+                 f"${bar.get_height():,}", ha='center', va='bottom', fontsize=8, color='#333')
+    
+    chart_path = 'static/median_house_price_chart.png'
+    plt.tight_layout()
+    plt.savefig(chart_path)
+    plt.close()
+    return chart_path
+
+def generate_plots(region_data, selected_region, selected_postcode, selected_suburb):
+    """Generate histogram and scatter plot for price distribution and price vs size."""
+    os.makedirs('static', exist_ok=True)
+
+    # Price Histogram
     prices = region_data["Price"].dropna()
     plt.figure(figsize=(8, 4))
     plt.hist(prices / 1e6, bins=20, range=(0, 3), color='#87CEEB', edgecolor='black')
@@ -183,56 +257,97 @@ def generate_plots(region_data, selected_region, selected_postcode, selected_sub
     plt.savefig(price_hist_path)
     plt.close()
 
-    return price_hist_path, None  # No scatter plot for simplicity
+    # Price vs Size Scatter (if Size data is available)
+    sizes = pd.to_numeric(region_data["Size"].str.replace(" sqm", ""), errors="coerce")
+    if sizes.notna().sum() > 0:
+        plt.figure(figsize=(8, 4))
+        plt.scatter(sizes, prices / 1e6, alpha=0.5, color='#FF6347')
+        plt.title(f"Price vs Size - {selected_region}{' - ' + selected_postcode if selected_postcode else ''}{' - ' + selected_suburb if selected_suburb else ''}", fontsize=12)
+        plt.xlabel("Size (sqm)", fontsize=10)
+        plt.ylabel("Sale Price ($million)", fontsize=10)
+        plt.grid(True, alpha=0.2)
+        plt.gca().yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
+        price_size_scatter_path = 'static/price_size_scatter.png'
+        plt.savefig(price_size_scatter_path)
+        plt.close()
+    else:
+        price_size_scatter_path = None
+
+    return price_hist_path, price_size_scatter_path
+
+def calculate_stats(region_data):
+    """Calculate mean, median, and standard deviation of prices."""
+    prices = region_data["Price"].dropna()
+    return {
+        "mean": round(np.mean(prices)) if not prices.empty else 0,
+        "median": round(np.median(prices)) if not prices.empty else 0,
+        "std": round(np.std(prices)) if not prices.empty else 0
+    }
 
 @app.route("/", methods=["GET", "POST"])
 def index():
     """Main route for rendering the property analyzer interface."""
-    logger.info("Entering index route")
     try:
         regions = sorted(REGION_POSTCODE_LIST.keys())
         selected_region = selected_postcode = selected_suburb = None
         selected_property_type = "HOUSE"
         properties = []
         avg_price = 0
-        price_hist_path = None
+        sort_by = "Address"
+        postcodes = suburbs = []
+        price_hist_path = price_size_scatter_path = None
+        stats = {"mean": 0, "median": 0, "std": 0}
         # Data source info
         data_source = "Data provided by NSW Valuer General Property Sales Information, last updated March 24, 2025"
+
+        median_by_region = calculate_median_house_by_region(PROPERTY_DF)
+        median_chart_path = generate_median_house_price_chart(PROPERTY_DF, median_by_region, chart_type="region")
 
         if request.method == "POST" and request.form.get("region"):
             selected_region = request.form.get("region")
             selected_postcode = request.form.get("postcode", "")
             selected_suburb = request.form.get("suburb", "")
             selected_property_type = request.form.get("property_type", "HOUSE")
+            sort_by = request.form.get("sort_by", "Address")
 
             if selected_region in REGION_POSTCODE_LIST:
                 postcodes = sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(REGION_POSTCODE_LIST[selected_region])]["Postcode"].unique())
             if selected_postcode:
                 suburbs = sorted(PROPERTY_DF[PROPERTY_DF["Postcode"] == selected_postcode]["Suburb"].unique())
 
-            region_data = get_region_data(PROPERTY_DF, selected_region, selected_postcode, selected_suburb, selected_property_type)
+            region_data = get_region_data(PROPERTY_DF, selected_region, selected_postcode, selected_suburb, selected_property_type, sort_by)
             if not region_data.empty:
                 properties = region_data[["Address", "Price", "Size", "Settlement Date"]].to_dict("records")
                 avg_price = calculate_avg_price(region_data)
-                price_hist_path, _ = generate_plots(region_data, selected_region, selected_postcode, selected_suburb)
+                price_hist_path, price_size_scatter_path = generate_plots(region_data, selected_region, selected_postcode, selected_suburb)
+                stats = calculate_stats(region_data)
 
-        logger.info("Rendering template")
+                if selected_region and not selected_postcode:
+                    median_by_postcode = calculate_median_house_by_postcode(PROPERTY_DF, selected_region)
+                    median_chart_path = generate_median_house_price_chart(PROPERTY_DF, median_by_postcode, chart_type="postcode", selected_region=selected_region)
+                elif selected_postcode:
+                    median_by_suburb = calculate_median_house_by_suburb(PROPERTY_DF, selected_postcode)
+                    median_chart_path = generate_median_house_price_chart(PROPERTY_DF, median_by_suburb, chart_type="suburb", selected_postcode=selected_postcode)
+
         return render_template(
             "index.html",
             regions=regions,
-            postcodes=postcodes if 'postcodes' in locals() else [],
-            suburbs=suburbs if 'suburbs' in locals() else [],
+            postcodes=postcodes,
+            suburbs=suburbs,
             selected_region=selected_region,
             selected_postcode=selected_postcode,
             selected_suburb=selected_suburb,
             selected_property_type=selected_property_type,
             properties=properties,
             avg_price=avg_price,
+            sort_by=sort_by,
             price_hist_path=price_hist_path,
+            stats=stats,
+            median_chart_path=median_chart_path,
+            price_size_scatter_path=price_size_scatter_path,
             data_source=data_source
         )
     except Exception as e:
-        logger.error(f"Error in index: {str(e)}")
         return render_template(
             "index.html",
             error=str(e),
@@ -258,14 +373,19 @@ def get_suburbs():
         return jsonify(sorted(region_data["Suburb"].unique()))
     return jsonify([])
 
-# Initialize data at startup
-PROPERTY_DF = load_property_data()
-REGION_SUBURBS = {region: sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(postcodes)]["Suburb"].unique())
-                  for region, postcodes in REGION_POSTCODE_LIST.items()}
+def initialize_data():
+    """Initialize global PROPERTY_DF and REGION_SUBURBS."""
+    global PROPERTY_DF, REGION_SUBURBS
+    PROPERTY_DF = load_property_data()
+    REGION_SUBURBS = {region: sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(postcodes)]["Suburb"].unique())
+                      for region, postcodes in REGION_POSTCODE_LIST.items()}
 
-if os.environ.get("RENDER"):
-    port = int(os.environ.get("PORT", 10000))
-    logger.info(f"Starting on 0.0.0.0:{port}")
-    app.run(host="0.0.0.0", port=port, debug=False)
+# Initialize data at startup
+initialize_data()
+
+# Check if running on Render by looking for an environment variable Render sets
+if os.environ.get("RENDER"):  # Render sets this
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)  # Production
 else:
-    app.run(debug=True)
+    app.run(debug=True)  # Local development on 127.0.0.1:5000

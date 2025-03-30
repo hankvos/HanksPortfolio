@@ -68,12 +68,34 @@
                 {% endfor %}
             </select>
 
+            <label for="property_type">Property Type:</label>
+            <select name="property_type" id="property_type">
+                <option value="HOUSE" {% if selected_property_type == "HOUSE" %}selected{% endif %}>House</option>
+                <option value="UNIT" {% if selected_property_type == "UNIT" %}selected{% endif %}>Unit</option>
+                <option value="VACANT LAND" {% if selected_property_type == "VACANT LAND" %}selected{% endif %}>Vacant Land</option>
+            </select>
+
+            <label for="sort_by">Sort By:</label>
+            <select name="sort_by" id="sort_by">
+                <option value="Address" {% if sort_by == "Address" %}selected{% endif %}>Address</option>
+                <option value="Price" {% if sort_by == "Price" %}selected{% endif %}>Price</option>
+                <option value="Block Size" {% if sort_by == "Block Size" %}selected{% endif %}>Block Size</option>
+                <option value="Settlement Date" {% if sort_by == "Settlement Date" %}selected{% endif %}>Settlement Date</option>
+            </select>
+
             <button type="submit">Analyze</button>
         </form>
+
+        {% if median_chart_path %}
+            <div class="chart">
+                <img src="{{ url_for('static', filename=median_chart_path.split('/')[-1]) }}" alt="Median House Price Chart">
+            </div>
+        {% endif %}
 
         {% if properties %}
             <h2>Analysis</h2>
             <p>Average Price: ${{ avg_price }}</p>
+            <p>Mean: ${{ stats.mean }} | Median: ${{ stats.median }} | Std Dev: ${{ stats.std }}</p>
             <table>
                 <tr>
                     <th>Address</th>
@@ -93,6 +115,11 @@
             {% if price_hist_path %}
                 <div class="chart">
                     <img src="{{ url_for('static', filename=price_hist_path.split('/')[-1]) }}" alt="Price Histogram">
+                </div>
+            {% endif %}
+            {% if price_size_scatter_path %}
+                <div class="chart">
+                    <img src="{{ url_for('static', filename=price_size_scatter_path.split('/')[-1]) }}" alt="Price vs Size Scatter">
                 </div>
             {% endif %}
         {% endif %}
