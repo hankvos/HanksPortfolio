@@ -273,7 +273,7 @@ def generate_plots(region_data, selected_region, selected_postcode, selected_sub
         plt.xlabel("Size (sqm)", fontsize=10)
         plt.ylabel("Sale Price ($million)", fontsize=10)
         plt.grid(True, alpha=0.2)
-    plt.gca().yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
+        plt.gca().yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
         price_size_scatter_path = 'static/price_size_scatter.png'
         plt.savefig(price_size_scatter_path)
         plt.close()
