@@ -45,7 +45,7 @@ PROPERTY_DF = None
 REGION_SUBURBS = {}
 
 def load_property_data(zip_files=None):
-    """Load property data: all inner ZIPs from 2025, only 202411* and 202412* from 2024."""
+    """Load property data: all inner ZIPs from 2024 and 2025."""
     if zip_files is None:
         zip_files = glob.glob("[2][0][2][4-5].zip")
         print(f"ZIP files found: {zip_files}")
@@ -69,9 +69,6 @@ def load_property_data(zip_files=None):
                 
                 if inner_zips:
                     for inner_zip_name in inner_zips:
-                        # Filter: 2024.zip -> only 202411* and 202412*, 2025.zip -> all
-                        if "2024" in zip_path and not (inner_zip_name.startswith("202411") or inner_zip_name.startswith("202412")):
-                            continue
                         with outer_zip.open(inner_zip_name) as inner_zip_file:
                             with zipfile.ZipFile(BytesIO(inner_zip_file.read())) as inner_zip:
                                 for dat_file in inner_zip.namelist():
@@ -89,8 +86,6 @@ def load_property_data(zip_files=None):
                                                     yield record
                 elif dat_files:
                     for dat_file in dat_files:
-                        if "2024" in zip_path and not (dat_file.startswith("202411") or dat_file.startswith("202412")):
-                            continue
                         with outer_zip.open(dat_file) as f:
                             for line in f.read().decode("utf-8").splitlines():
                                 if line.startswith("B;"):
@@ -231,7 +226,7 @@ def calculate_median_house_by_suburb(df, postcode):
     return median_by_suburb
 
 def generate_median_house_price_chart(df, data_dict, chart_type="region", selected_region=None, selected_postcode=None):
-    """Generate a bar chart for median house prices with earliest 2024 date."""
+    """Generate a bar chart for median house prices with fixed date range."""
     if not data_dict:
         return None
     os.makedirs('static', exist_ok=True)
@@ -244,11 +239,7 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
         "suburb": f"Median House Price by Suburb in Postcode {selected_postcode}"
     }.get(chart_type, "Median House Price")
 
-    # Use earliest 2024 and latest date from all data
-    df_2024 = df[df["Settlement Date Raw"].dt.year == 2024]
-    min_date = df_2024["Settlement Date Raw"].min().strftime("%b %Y") if not df_2024.empty else "Dec 2024"
-    max_date = df["Settlement Date Raw"].max().strftime("%b %Y")
-    date_range = f" ({min_date} - {max_date})"
+    date_range = " (2024 - Mar 2025)"  # Fixed range
 
     plt.figure(figsize=(8, 4))
     bars = plt.bar(labels, prices, color='#4682B4', edgecolor='black', width=0.6)
@@ -269,15 +260,11 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
     return chart_path
 
 def generate_plots(region_data, selected_region, selected_postcode, selected_suburb):
-    """Generate histogram for price distribution with earliest 2024 date."""
+    """Generate histogram for price distribution with fixed date range."""
     os.makedirs('static', exist_ok=True)
 
-    # Price Histogram
     prices = region_data["Price"].dropna()
-    region_data_2024 = region_data[region_data["Settlement Date Raw"].dt.year == 2024]
-    min_date = region_data_2024["Settlement Date Raw"].min().strftime("%b %Y") if not region_data_2024.empty else "Dec 2024"
-    max_date = region_data["Settlement Date Raw"].max().strftime("%b %Y")
-    date_range = f" ({min_date} - {max_date})"
+    date_range = " (2024 - Mar 2025)"  # Fixed range
 
     plt.figure(figsize=(8, 4))
     plt.hist(prices / 1e6, bins=20, range=(0, 3), color='#87CEEB', edgecolor='black')
