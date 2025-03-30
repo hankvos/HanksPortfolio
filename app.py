@@ -14,6 +14,11 @@ import os
 
 app = Flask(__name__)
 
+# Add custom Jinja2 filter for comma-separated numbers
+def intcomma(value):
+    return "{:,}".format(int(value))
+app.jinja_env.filters['intcomma'] = intcomma
+
 # Define regions and their postcode ranges
 REGION_POSTCODES = {
     "Central Coast": ["2083", "2250", "2251", "2256", "2257", "2258", "2259", "2260", "2261", "2262", "2263", "2775"],
