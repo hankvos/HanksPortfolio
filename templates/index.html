@@ -2,7 +2,6 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NSW Property Analyser</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script>
@@ -34,99 +33,138 @@
                 });
         }
     </script>
+    <style>
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            padding: 20px;
+        }
+        .left-column {
+            flex: 1;
+            min-width: 300px;
+            max-width: 400px;
+        }
+        .right-column {
+            flex: 2;
+            min-width: 400px;
+        }
+        select, button {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+            margin-bottom: 20px;
+        }
+        .stats {
+            margin-top: 20px;
+        }
+    </style>
 </head>
 <body>
+    <h1>NSW Property Analyser</h1>
     <div class="container">
-        <h1>NSW Property Analyser</h1>
-        <p>{{ data_source }}</p>
-        {% if error %}
-            <p class="error">Error: {{ error }}</p>
-        {% endif %}
+        <div class="left-column">
+            <form method="POST">
+                <label for="region">Region:</label>
+                <select id="region" name="region" onchange="updatePostcodes()">
+                    <option value="">Select Region</option>
+                    {% for region in regions %}
+                        <option value="{{ region }}" {% if region == selected_region %}selected{% endif %}>{{ region }}</option>
+                    {% endfor %}
+                </select>
 
-        <form method="POST">
-            <label for="region">Region:</label>
-            <select name="region" id="region" onchange="updatePostcodes()">
-                <option value="">Select Region</option>
-                {% for region in regions %}
-                    <option value="{{ region }}" {% if region == selected_region %}selected{% endif %}>{{ region }}</option>
-                {% endfor %}
-            </select>
+                <label for="postcode">Postcode:</label>
+                <select id="postcode" name="postcode" onchange="updateSuburbs()">
+                    <option value="">Select Postcode</option>
+                    {% for postcode in postcodes %}
+                        <option value="{{ postcode }}" {% if postcode == selected_postcode %}selected{% endif %}>{{ postcode }}</option>
+                    {% endfor %}
+                </select>
 
-            <label for="postcode">Postcode:</label>
-            <select name="postcode" id="postcode" onchange="updateSuburbs()">
-                <option value="">Select Postcode</option>
-                {% for postcode in postcodes %}
-                    <option value="{{ postcode }}" {% if postcode == selected_postcode %}selected{% endif %}>{{ postcode }}</option>
-                {% endfor %}
-            </select>
+                <label for="suburb">Suburb:</label>
+                <select id="suburb" name="suburb">
+                    <option value="">Select Suburb</option>
+                    {% for suburb in suburbs %}
+                        <option value="{{ suburb }}" {% if suburb == selected_suburb %}selected{% endif %}>{{ suburb }}</option>
+                    {% endfor %}
+                </select>
 
-            <label for="suburb">Suburb:</label>
-            <select name="suburb" id="suburb">
-                <option value="">Select Suburb</option>
-                {% for suburb in suburbs %}
-                    <option value="{{ suburb }}" {% if suburb == selected_suburb %}selected{% endif %}>{{ suburb }}</option>
-                {% endfor %}
-            </select>
+                <label for="property_type">Property Type:</label>
+                <select id="property_type" name="property_type">
+                    <option value="HOUSE" {% if selected_property_type == "HOUSE" %}selected{% endif %}>House</option>
+                    <option value="UNIT" {% if selected_property_type == "UNIT" %}selected{% endif %}>Unit</option>
+                    <option value="VACANT LAND" {% if selected_property_type == "VACANT LAND" %}selected{% endif %}>Vacant Land</option>
+                    <option value="COMMERCIAL" {% if selected_property_type == "COMMERCIAL" %}selected{% endif %}>Commercial</option>
+                    <option value="SHOP" {% if selected_property_type == "SHOP" %}selected{% endif %}>Shop</option>
+                </select>
 
-            <label for="property_type">Property Type:</label>
-            <select name="property_type" id="property_type" onchange="this.form.submit()">
-                <option value="HOUSE" {% if selected_property_type == "HOUSE" %}selected{% endif %}>House</option>
-                <option value="UNIT" {% if selected_property_type == "UNIT" %}selected{% endif %}>Unit</option>
-                <option value="VACANT LAND" {% if selected_property_type == "VACANT LAND" %}selected{% endif %}>Vacant Land</option>
-                <option value="COMMERCIAL" {% if selected_property_type == "COMMERCIAL" %}selected{% endif %}>Commercial</option>
-                <option value="SHOP" {% if selected_property_type == "SHOP" %}selected{% endif %}>Shop</option>
-            </select>
+                <label for="sort_by">Sort By:</label>
+                <select id="sort_by" name="sort_by">
+                    <option value="Address" {% if sort_by == "Address" %}selected{% endif %}>Address</option>
+                    <option value="Price" {% if sort_by == "Price" %}selected{% endif %}>Price</option>
+                    <option value="Block Size" {% if sort_by == "Block Size" %}selected{% endif %}>Block Size</option>
+                    <option value="Settlement Date" {% if sort_by == "Settlement Date" %}selected{% endif %}>Settlement Date</option>
+                </select>
 
-            <label for="sort_by">Sort By:</label>
-            <select name="sort_by" id="sort_by" onchange="this.form.submit()">
-                <option value="Address" {% if sort_by == "Address" %}selected{% endif %}>Address</option>
-                <option value="Price" {% if sort_by == "Price" %}selected{% endif %}>Price</option>
-                <option value="Block Size" {% if sort_by == "Block Size" %}selected{% endif %}>Block Size</option>
-                <option value="Settlement Date" {% if sort_by == "Settlement Date" %}selected{% endif %}>Settlement Date</option>
-            </select>
-
-            <button type="submit">Analyze</button>
-        </form>
-
-        {% if median_chart_path %}
-            <div class="chart">
+                <button type="submit">Filter</button>
+            </form>
+            {% if error %}
+                <p style="color: red;">Error: {{ error }}</p>
+            {% endif %}
+        </div>
+        <div class="right-column">
+            {% if median_chart_path %}
                 <img src="{{ url_for('static', filename=median_chart_path.split('/')[-1]) }}" alt="Median House Price Chart">
-            </div>
-        {% endif %}
-
-        {% if properties %}
-            <h2>Analysis</h2>
-            <p>Average Price: ${{ avg_price }}</p>
-            <p>Mean: ${{ stats.mean }} | Median: ${{ stats.median }} | Std Dev: ${{ stats.std }}</p>
-            <table>
-                <tr>
-                    <th>Address</th>
-                    <th>Price ($)</th>
-                    <th>Size</th>
-                    <th>Settlement Date</th>
-                    <th>Map</th>
-                </tr>
-                {% for prop in properties %}
-                    <tr>
-                        <td>{{ prop.Address }}</td>
-                        <td>{{ prop.Price }}</td>
-                        <td>{{ prop.Size }}</td>
-                        <td>{{ prop["Settlement Date"] }}</td>
-                        <td><a href="https://www.google.com/maps/place/{{ prop.Address | replace(' ', '+') }}" target="_blank">Map</a></td>
-                    </tr>
-                {% endfor %}
-            </table>
+            {% endif %}
             {% if price_hist_path %}
-                <div class="chart">
-                    <img src="{{ url_for('static', filename=price_hist_path.split('/')[-1]) }}" alt="Price Histogram">
-                </div>
+                <img src="{{ url_for('static', filename=price_hist_path.split('/')[-1]) }}" alt="Price Histogram">
             {% endif %}
             {% if price_size_scatter_path %}
-                <div class="chart">
-                    <img src="{{ url_for('static', filename=price_size_scatter_path.split('/')[-1]) }}" alt="Price vs Size Scatter">
-                </div>
+                <img src="{{ url_for('static', filename=price_size_scatter_path.split('/')[-1]) }}" alt="Price vs Size Scatter">
             {% endif %}
-        {% endif %}
+            {% if properties %}
+                <p>Average Price: ${{ avg_price | intcomma }}</p>
+                <div class="stats">
+                    <p>Mean Price: ${{ stats.mean | intcomma }}</p>
+                    <p>Median Price: ${{ stats.median | intcomma }}</p>
+                    <p>Std Dev: ${{ stats.std | intcomma }}</p>
+                </div>
+                <table>
+                    <tr>
+                        <th>Address</th>
+                        <th>Price</th>
+                        <th>Size</th>
+                        <th>Settlement Date</th>
+                    </tr>
+                    {% for prop in properties %}
+                        <tr>
+                            <td>{{ prop["Address"] }}</td>
+                            <td>${{ prop["Price"] | intcomma }}</td>
+                            <td>{{ prop["Size"] }}</td>
+                            <td>{{ prop["Settlement Date"] }}</td>
+                        </tr>
+                    {% endfor %}
+                </table>
+            {% endif %}
+        </div>
     </div>
+    <p>{{ data_source }}</p>
 </body>
 </html>

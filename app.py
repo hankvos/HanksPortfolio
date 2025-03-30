@@ -38,8 +38,8 @@ REGION_POSTCODE_LIST = {region: expand_postcode_ranges(ranges) for region, range
 PROPERTY_DF = None
 REGION_SUBURBS = {}
 
-def load_property_data(zip_files=None, max_inner_zips=1):
-    """Load property data from ZIP files, limiting inner ZIPs to reduce memory."""
+def load_property_data(zip_files=None):
+    """Load property data: all inner ZIPs from 2025, only 20241230 from 2024."""
     if zip_files is None:
         zip_files = glob.glob("[2][0][2][4-5].zip")
         print(f"ZIP files found: {zip_files}")
@@ -55,30 +55,36 @@ def load_property_data(zip_files=None, max_inner_zips=1):
     ]
 
     def record_generator():
-        inner_zip_count = 0
+        date_counts = {}
         for zip_path in sorted(zip_files):
             with zipfile.ZipFile(zip_path, "r") as outer_zip:
                 inner_zips = [f for f in outer_zip.namelist() if f.endswith(".zip")]
                 dat_files = [f for f in outer_zip.namelist() if f.endswith(".DAT")]
+                
                 if inner_zips:
                     for inner_zip_name in inner_zips:
-                        if inner_zip_count >= max_inner_zips:
-                            break
+                        # Filter: 2024.zip -> only 20241230, 2025.zip -> all
+                        if "2024" in zip_path and "20241230" not in inner_zip_name:
+                            continue
                         with outer_zip.open(inner_zip_name) as inner_zip_file:
                             with zipfile.ZipFile(BytesIO(inner_zip_file.read())) as inner_zip:
-                                for dat_file in [f for f in inner_zip.namelist() if f.endswith(".DAT")]:
-                                    with inner_zip.open(dat_file) as f:
-                                        for line in f.read().decode("utf-8").splitlines():
-                                            if line.startswith("B;"):
-                                                record = line.split(";")
-                                                if len(record) < 19:
-                                                    record.extend([""] * (19 - len(record)))
-                                                elif len(record) > 19:
-                                                    record = record[:19]
-                                                yield record
-                        inner_zip_count += 1
+                                for dat_file in inner_zip.namelist():
+                                    if dat_file.endswith(".DAT"):
+                                        with inner_zip.open(dat_file) as f:
+                                            for line in f.read().decode("utf-8").splitlines():
+                                                if line.startswith("B;"):
+                                                    record = line.split(";")
+                                                    if len(record) < 19:
+                                                        record.extend([""] * (19 - len(record)))
+                                                    elif len(record) > 19:
+                                                        record = record[:19]
+                                                    settlement_date = record[14]  # 15th field
+                                                    date_counts[settlement_date] = date_counts.get(settlement_date, 0) + 1
+                                                    yield record
                 elif dat_files:
                     for dat_file in dat_files:
+                        if "2024" in zip_path and "20241230" not in dat_file:
+                            continue
                         with outer_zip.open(dat_file) as f:
                             for line in f.read().decode("utf-8").splitlines():
                                 if line.startswith("B;"):
@@ -87,7 +93,10 @@ def load_property_data(zip_files=None, max_inner_zips=1):
                                         record.extend([""] * (19 - len(record)))
                                     elif len(record) > 19:
                                         record = record[:19]
+                                    settlement_date = record[14]
+                                    date_counts[settlement_date] = date_counts.get(settlement_date, 0) + 1
                                     yield record
+        print("Unique Settlement Dates and Counts:", date_counts)
 
     df = pd.DataFrame(record_generator(), columns=column_names)
     df = df.drop(columns=[col for col in df.columns if col.startswith("Unused")])
@@ -95,8 +104,7 @@ def load_property_data(zip_files=None, max_inner_zips=1):
     if df.empty:
         raise ValueError("No B records found in any .DAT files.")
     
-    # Debug: Print raw Settlement Date from first record
-    print("Raw Settlement Date (first record):", df["Settlement Date"].iloc[0])
+    print("Raw Settlement Dates (first 5 records):", df["Settlement Date"].head().tolist())
     
     def determine_property_type(row):
         base_type = row["Property Type"].strip().upper()
@@ -123,10 +131,9 @@ def load_property_data(zip_files=None, max_inner_zips=1):
     if df_filtered.empty:
         raise ValueError("No valid Sale Price data after filtering.")
     
-    # Debug: Print before and after date conversion
-    print("Before conversion (first record):", df_filtered["Settlement Date"].iloc[0])
+    print("Before conversion (first 5 records):", df_filtered["Settlement Date"].head().tolist())
     df_filtered["Settlement Date"] = pd.to_datetime(df_filtered["Settlement Date"], format="%Y%m%d", errors="coerce").dt.strftime("%d/%m/%Y")
-    print("After conversion (first record):", df_filtered["Settlement Date"].iloc[0])
+    print("After conversion (first 5 records):", df_filtered["Settlement Date"].head().tolist())
     
     for col in ["Unit Number", "House Number", "Street Name", "Suburb", "Postcode"]:
         df_filtered[col] = df_filtered[col].astype(str).replace("", "")
@@ -304,7 +311,6 @@ def index():
         postcodes = suburbs = []
         price_hist_path = price_size_scatter_path = None
         stats = {"mean": 0, "median": 0, "std": 0}
-        # Data source info
         data_source = "Data provided by NSW Valuer General Property Sales Information, last updated March 24, 2025"
 
         median_by_region = calculate_median_house_by_region(PROPERTY_DF)
