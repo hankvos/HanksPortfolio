@@ -69,14 +69,14 @@
             </select>
 
             <label for="property_type">Property Type:</label>
-            <select name="property_type" id="property_type">
+            <select name="property_type" id="property_type" onchange="this.form.submit()">
                 <option value="HOUSE" {% if selected_property_type == "HOUSE" %}selected{% endif %}>House</option>
                 <option value="UNIT" {% if selected_property_type == "UNIT" %}selected{% endif %}>Unit</option>
                 <option value="VACANT LAND" {% if selected_property_type == "VACANT LAND" %}selected{% endif %}>Vacant Land</option>
             </select>
 
             <label for="sort_by">Sort By:</label>
-            <select name="sort_by" id="sort_by">
+            <select name="sort_by" id="sort_by" onchange="this.form.submit()">
                 <option value="Address" {% if sort_by == "Address" %}selected{% endif %}>Address</option>
                 <option value="Price" {% if sort_by == "Price" %}selected{% endif %}>Price</option>
                 <option value="Block Size" {% if sort_by == "Block Size" %}selected{% endif %}>Block Size</option>
