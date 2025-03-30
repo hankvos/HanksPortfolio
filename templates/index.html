@@ -77,6 +77,11 @@
         .stats {
             margin-top: 20px;
         }
+        .footer {
+            padding: 0 20px 20px 20px;  /* Match container padding, no top padding */
+            font-size: 0.9em;
+            color: #666;
+        }
     </style>
 </head>
 <body>
@@ -166,6 +171,8 @@
             {% endif %}
         </div>
     </div>
-    <p>{{ data_source }}</p>
+    <div class="footer">
+        <p>{{ data_source }}</p>
+    </div>
 </body>
 </html>
