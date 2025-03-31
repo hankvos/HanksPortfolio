@@ -234,7 +234,7 @@ def calculate_median_house_by_suburb(df, postcode):
     return dict(sorted(median_by_suburb.items(), key=lambda x: x[1]["price"]))
 
 def generate_median_house_price_chart(df, data_dict, chart_type="region", selected_region=None, selected_postcode=None):
-    """Generate a bar chart for median house prices, sorted by price."""
+    """Generate a bar chart for median house prices, sorted by price, with labels only for region."""
     if not data_dict:
         return None
     os.makedirs('static', exist_ok=True)
@@ -260,10 +260,12 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
     ax.grid(True, axis='y', linestyle='--', alpha=0.3, color='#999')
     ax.set_facecolor('#ffffff')
 
-    for bar in bars:
-        height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2., height + max(prices)*0.02,
-                f"${int(height):,}", ha='center', va='bottom', fontsize=10, color='#333', weight='bold')
+    # Add value labels only for region chart
+    if chart_type == "region":
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height + max(prices)*0.02,
+                    f"${int(height):,}", ha='center', va='bottom', fontsize=10, color='#333', weight='bold')
 
     plt.tight_layout()
     chart_path = 'static/median_house_price_chart.png'
