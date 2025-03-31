@@ -394,6 +394,20 @@ def generate_heatmap(df):
     if heat_data:
         HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
+    # Custom JavaScript to handle marker clicks
+    marker_script = """
+    <script>
+    function addMarkerClickHandler(marker, region) {
+        marker.on('click', function() {
+            window.parent.document.getElementById('region').value = region;
+            window.parent.updatePostcodes();
+            window.parent.document.forms[0].submit();
+        });
+    }
+    </script>
+    """
+    m.get_root().html.add_child(folium.Element(marker_script))
+    
     for region, postcodes in REGION_POSTCODE_LIST.items():
         coords = [POSTCODE_COORDS.get(pc, None) for pc in postcodes if pc in POSTCODE_COORDS]
         coords = [c for c in coords if c]
@@ -408,14 +422,16 @@ def generate_heatmap(df):
             icon=folium.Icon(color="blue", icon="info-sign")
         )
         marker.add_to(m)
-        # Add click event directly to the marker
-        marker.add_child(folium.ClickForMarker(
-            f"""
-            parent.document.getElementById('region').value = '{region}';
-            parent.updatePostcodes();
-            parent.document.forms[0].submit();
-            """
-        ))
+        # Add unique ID to marker and attach click handler
+        marker_id = f"marker_{region.replace(' ', '_')}"
+        marker._id = marker_id  # Assign an ID to the marker
+        marker_script = f"""
+        <script>
+        var {marker_id} = L.marker([{lat}, {lon}]);
+        addMarkerClickHandler({marker_id}, '{region}');
+        </script>
+        """
+        m.get_root().script.add_child(folium.Element(marker_script))
     
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
