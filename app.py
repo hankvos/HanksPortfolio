@@ -16,10 +16,13 @@ import folium
 from folium.plugins import HeatMap
 import logging
 
+# Suppress Matplotlib debug logs
+logging.getLogger('matplotlib').setLevel(logging.INFO)
+
 app = Flask(__name__, static_folder='static', static_url_path='/static')
 
-# Set up logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+# Set up app-specific logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def intcomma(value):
     return "{:,}".format(int(value))
@@ -144,8 +147,6 @@ def load_property_data(zip_files=None):
     if df.empty:
         raise ValueError("No B records found in any .DAT files after filtering.")
     
-    logging.debug(f"Raw Settlement Dates (first 5): {df['Settlement Date'].head().tolist()}")
-    
     df["Settlement Date Raw"] = pd.to_datetime(df["Settlement Date"], format="%Y%m%d", errors="coerce")
     df = df[df["Settlement Date Raw"].dt.year.isin([2024, 2025])].copy()
     logging.info(f"After filtering to 2024/2025, records remaining: {len(df)}")
@@ -175,9 +176,7 @@ def load_property_data(zip_files=None):
     if df_filtered.empty:
         raise ValueError("No valid Sale Price data after filtering.")
     
-    logging.debug(f"Before conversion (first 5): {df_filtered['Settlement Date'].head().tolist()}")
     df_filtered["Settlement Date"] = df_filtered["Settlement Date Raw"].dt.strftime("%d/%m/%Y")
-    logging.debug(f"After conversion (first 5): {df_filtered['Settlement Date'].head().tolist()}")
     
     for col in ["Unit Number", "House Number", "Street Name", "Suburb", "Postcode"]:
         df_filtered[col] = df_filtered[col].astype(str).replace("", "")
@@ -396,8 +395,7 @@ def generate_heatmap(df):
             lat, lon = POSTCODE_COORDS[row["Postcode"]]
             heat_data.append([lat, lon, row["Price"] / 1e6])
     
-    logging.debug(f"Heatmap data points: {len(heat_data)}")
-    logging.debug(f"Sample heat_data: {heat_data[:5] if heat_data else 'Empty'}")
+    logging.info(f"Heatmap data points: {len(heat_data)}")
     
     if heat_data:
         HeatMap(heat_data, radius=15, blur=20).add_to(m)
@@ -428,12 +426,17 @@ def generate_heatmap(df):
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
     
-    # Add explicit initialization script
+    # Ensure map renders with explicit size
     m.get_root().html.add_child(folium.Element("""
+    <style>
+        html, body { width: 100%; height: 100%; margin: 0; padding: 0; }
+        #map { width: 100%; height: 100%; }
+    </style>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             if (typeof L !== 'undefined' && document.getElementById('map')) {
-                map.invalidateSize();
+                var mapInstance = map;
+                setTimeout(function() { mapInstance.invalidateSize(); }, 100);
             }
         });
     </script>
@@ -445,7 +448,6 @@ def generate_heatmap(df):
     with open(heatmap_path, 'r') as f:
         content = f.read()
         logging.info(f"Heatmap content length: {len(content)} bytes")
-        logging.debug(f"Heatmap content sample: {content[:200]}")
     
     return "/static/heatmap.html"
 
@@ -587,7 +589,6 @@ def initialize_data():
     REGION_SUBURBS = {region: sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(postcodes)]["Suburb"].unique())
                       for region, postcodes in REGION_POSTCODE_LIST.items()}
     logging.info(f"Unique postcodes in data: {sorted(PROPERTY_DF['Postcode'].unique())}")
-    logging.info(f"Postcodes in POSTCODE_COORDS: {sorted(POSTCODE_COORDS.keys())}")
 
 initialize_data()
 
