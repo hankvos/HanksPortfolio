@@ -56,6 +56,7 @@ def expand_postcode_ranges(ranges):
 REGION_POSTCODE_LIST = {region: expand_postcode_ranges(ranges) for region, ranges in REGION_POSTCODES.items()}
 PROPERTY_DF = None
 REGION_SUBURBS = {}
+DATA_SOURCE = "Data provided by NSW Valuer General Property Sales Information, last updated March 24, 2025"
 
 def load_property_data(zip_files=None):
     if zip_files is None:
@@ -397,24 +398,7 @@ def generate_heatmap(df):
     else:
         logging.warning("No valid heatmap data points to add.")
     
-    # Add custom JavaScript for marker clicks
-    click_js = """
-    function onMarkerClick(region) {
-        if (region) {
-            parent.document.getElementById('region').value = region;
-            parent.updatePostcodes();
-            parent.document.forms[0].submit();
-        } else {
-            console.error('Region not found');
-        }
-    }
-    """
-    try:
-        m.get_root().header.add_child(folium.Element(f'<script>{click_js}</script>'))
-        logging.debug("Click JavaScript added to map header.")
-    except Exception as e:
-        logging.error(f"Failed to add click JavaScript: {e}")
-    
+    marker_data = []
     marker_index = 0
     for region, postcodes in REGION_POSTCODE_LIST.items():
         coords = [POSTCODE_COORDS.get(pc, None) for pc in postcodes if pc in POSTCODE_COORDS]
@@ -425,32 +409,47 @@ def generate_heatmap(df):
         lat = sum(c[0] for c in coords) / len(coords)
         lon = sum(c[1] for c in coords) / len(coords)
         try:
-            marker = folium.Marker(
+            folium.Marker(
                 [lat, lon],
                 tooltip=region,
-                options={'region': region}
-            )
-            marker.add_to(m)
-            # Simplified JS with direct region string
-            js_code = f"""
-            <script>
-                var markers = document.querySelectorAll('.leaflet-marker-icon');
-                if (markers[{marker_index}]) {{
-                    markers[{marker_index}].addEventListener('click', function() {{
-                        onMarkerClick('{region}');
-                    }});
-                }} else {{
-                    console.error('Marker at index {marker_index} not found');
-                }}
-            </script>
-            """
-            m.add_child(folium.Element(js_code))
+                icon=folium.Icon(color="blue", icon="info-sign")
+            ).add_to(m)
+            marker_data.append({"index": marker_index, "region": region})
             logging.debug(f"Added marker for {region} at index {marker_index}")
             marker_index += 1
         except Exception as e:
             logging.error(f"Error adding marker for {region}: {e}")
     
     logging.info(f"Total markers added: {marker_index}")
+    
+    # Add JavaScript for marker clicks at the end
+    click_js = """
+    <script>
+    function onMarkerClick(region) {
+        console.log('Marker clicked: ' + region);
+        if (region) {
+            parent.document.getElementById('region').value = region;
+            parent.updatePostcodes();
+            parent.document.forms[0].submit();
+        } else {
+            console.error('Region not found');
+        }
+    }
+    document.addEventListener('DOMContentLoaded', function() {
+        var markers = document.querySelectorAll('.leaflet-marker-icon');
+        %s
+    });
+    </script>
+    """
+    marker_scripts = "\n".join([
+        f"if (markers[{data['index']}]) {{ markers[{data['index']}].addEventListener('click', function() {{ onMarkerClick('{data['region']}'); }}); }} else {{ console.error('Marker at index {data['index']} not found'); }}"
+        for data in marker_data
+    ])
+    try:
+        m.get_root().html.add_child(folium.Element(click_js % marker_scripts))
+        logging.debug("Click JavaScript added to map HTML.")
+    except Exception as e:
+        logging.error(f"Failed to add click JavaScript: {e}")
     
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
@@ -479,7 +478,6 @@ def index():
         postcodes = suburbs = []
         price_hist_path = region_timeline_path = postcode_timeline_path = suburb_timeline_path = None
         stats = {"mean": 0, "median": 0, "std": 0}
-        data_source = "Data provided by NSW Valuer General Property Sales Information, last updated March 24, 2025"
         
         median_by_region = calculate_median_house_by_region(PROPERTY_DF)
         median_chart_path = generate_median_house_price_chart(PROPERTY_DF, median_by_region, chart_type="region")
@@ -533,7 +531,7 @@ def index():
             median_chart_path=median_chart_path,
             heatmap_path=heatmap_path,
             price_size_scatter_path=None,
-            data_source=data_source
+            data_source=DATA_SOURCE
         )
     except Exception as e:
         logging.error(f"Error in index route: {e}")
@@ -541,7 +539,7 @@ def index():
             "index.html",
             error=str(e),
             regions=sorted(REGION_POSTCODE_LIST.keys()),
-            data_source=data_source
+            data_source=DATA_SOURCE
         )
 
 @app.route("/get_postcodes", methods=["GET"])
