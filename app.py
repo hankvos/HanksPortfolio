@@ -402,18 +402,21 @@ def generate_heatmap(df):
             continue
         lat = sum(c[0] for c in coords) / len(coords)
         lon = sum(c[1] for c in coords) / len(coords)
-        # Add marker with clickable popup
-        popup_html = f"""
-        <a href="#" onclick="parent.document.getElementById('region').value='{region}';
-                           parent.updatePostcodes();
-                           parent.document.forms[0].submit();">{region}</a>
-        """
-        folium.Marker(
+        marker = folium.Marker(
             [lat, lon],
             tooltip=region,
-            popup=folium.Popup(popup_html, max_width=200),
             icon=folium.Icon(color="blue", icon="info-sign")
-        ).add_to(m)
+        )
+        marker.add_to(m)
+        # Add custom JavaScript for direct click
+        marker_js = f"""
+        L.marker([{lat}, {lon}]).on('click', function() {{
+            parent.document.getElementById('region').value = '{region}';
+            parent.updatePostcodes();
+            parent.document.forms[0].submit();
+        }});
+        """
+        m.get_root().script.add_child(folium.Element(marker_js))
     
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
