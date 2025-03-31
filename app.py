@@ -400,7 +400,7 @@ def generate_heatmap(df):
     if heat_data:
         HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
-    # Add markers for each region
+    # Generate marker script
     marker_scripts = ""
     for region, postcodes in REGION_POSTCODE_LIST.items():
         coords = [POSTCODE_COORDS.get(pc, None) for pc in postcodes if pc in POSTCODE_COORDS]
@@ -410,31 +410,24 @@ def generate_heatmap(df):
             continue
         lat = sum(c[0] for c in coords) / len(coords)
         lon = sum(c[1] for c in coords) / len(coords)
-        marker = folium.Marker(
-            [lat, lon],
-            tooltip=region,
-            icon=folium.Icon(color="blue", icon="info-sign")
-        )
-        marker.add_to(m)
-        marker_id = marker.get_name()
-        click_script = f"""
-        var {marker_id} = L.marker([{lat}, {lon}], {{icon: L.AwesomeMarkers.icon({{icon: 'info-sign', prefix: 'fa', markerColor: 'blue'}})}})
+        marker_scripts += f"""
+        L.marker([{lat}, {lon}], {{icon: L.AwesomeMarkers.icon({{icon: 'info-sign', prefix: 'fa', markerColor: 'blue'}})}})
+            .addTo(mapInstance)
             .bindTooltip('{region}')
-            .addTo(mapInstance);
-        {marker_id}.on('click', function() {{
-            if (window.parent && window.parent.document.getElementById('region')) {{
-                window.parent.document.getElementById('region').value = '{region}';
-                window.parent.updatePostcodes();
-                window.parent.document.forms[0].submit();
-            }}
-        }});
+            .on('click', function() {{
+                try {{
+                    window.parent.document.getElementById('region').value = '{region}';
+                    window.parent.updatePostcodes();
+                    window.parent.document.forms[0].submit();
+                }} catch (e) {{
+                    console.log('Error on marker click: ' + e);
+                }}
+            }});
         """
-        marker_scripts += click_script
     
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
     
-    # Include Leaflet Awesome Markers for better icons
     m.get_root().html.add_child(folium.Element("""
     <style>
         html, body { width: 100%; height: 100%; margin: 0; padding: 0; }
@@ -454,6 +447,8 @@ def generate_heatmap(df):
                     var heat = L.heatLayer(""" + str(heat_data) + """, {radius: 15, blur: 20}).addTo(mapInstance);
                     """ + marker_scripts + """
                 }, 100);
+            } else {
+                console.log('Leaflet or map div not found');
             }
         });
     </script>
@@ -470,22 +465,26 @@ def generate_heatmap(df):
 
 def generate_price_size_scatter(df, selected_region):
     os.makedirs('static', exist_ok=True)
-    df_clean = df[df["Size"].str.match(r'^\d+(\.\d+)?\s*sqm$')].copy()
-    df_clean["SizeNumeric"] = df_clean["Size"].str.replace(" sqm", "").astype(float)
     
-    if df_clean.empty:
-        logging.warning(f"No valid size data for scatter plot in {selected_region}")
+    # Aggregate data by month
+    df["Month"] = df["Settlement Date Raw"].dt.to_period('M').dt.to_timestamp()
+    monthly_data = df.groupby("Month").agg({"Price": "median"}).reset_index()
+    
+    if monthly_data.empty:
+        logging.warning(f"No valid data for scatter plot in {selected_region}")
         return None
     
     fig, ax = plt.subplots(figsize=(10, 5), facecolor='#f5f5f5')
-    ax.scatter(df_clean["SizeNumeric"], df_clean["Price"] / 1e6, alpha=0.5, color='#4682B4')
+    ax.scatter(monthly_data["Month"], monthly_data["Price"] / 1e6, alpha=0.5, color='#4682B4', s=100)
     
-    ax.set_title(f"Price vs Size - {selected_region} (Oct 2024 - Mar 2025)", fontsize=14, weight='bold')
-    ax.set_xlabel("Size (sqm)", fontsize=12)
-    ax.set_ylabel("Price ($M)", fontsize=12)
+    ax.set_title(f"Median Price vs Settlement Month - {selected_region} (Oct 2024 - Mar 2025)", fontsize=14, weight='bold')
+    ax.set_xlabel("Settlement Month", fontsize=12)
+    ax.set_ylabel("Median Price ($M)", fontsize=12)
+    ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%b %Y"))
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
     ax.grid(True, linestyle='--', alpha=0.3)
     
+    plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
     scatter_path = 'static/price_size_scatter.png'
     plt.savefig(scatter_path, dpi=150, bbox_inches='tight')
