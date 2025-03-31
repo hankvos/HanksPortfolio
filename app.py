@@ -400,34 +400,41 @@ def generate_heatmap(df):
     if heat_data:
         HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
-    # Temporarily remove markers to test heatmap
-    # for region, postcodes in REGION_POSTCODE_LIST.items():
-    #     coords = [POSTCODE_COORDS.get(pc, None) for pc in postcodes if pc in POSTCODE_COORDS]
-    #     coords = [c for c in coords if c]
-    #     if not coords:
-    #         logging.warning(f"No valid coordinates for region: {region}")
-    #         continue
-    #     lat = sum(c[0] for c in coords) / len(coords)
-    #     lon = sum(c[1] for c in coords) / len(coords)
-    #     marker = folium.Marker(
-    #         [lat, lon],
-    #         tooltip=region,
-    #         icon=folium.Icon(color="blue", icon="info-sign")
-    #     )
-    #     marker.add_to(m)
-    #     click_script = f"""
-    #     {marker.get_name()}.on('click', function() {{
-    #         window.parent.document.getElementById('region').value = '{region}';
-    #         window.parent.updatePostcodes();
-    #         window.parent.document.forms[0].submit();
-    #     }});
-    #     """
-    #     m.get_root().script.add_child(folium.Element(click_script))
+    # Add markers for each region
+    marker_scripts = ""
+    for region, postcodes in REGION_POSTCODE_LIST.items():
+        coords = [POSTCODE_COORDS.get(pc, None) for pc in postcodes if pc in POSTCODE_COORDS]
+        coords = [c for c in coords if c]
+        if not coords:
+            logging.warning(f"No valid coordinates for region: {region}")
+            continue
+        lat = sum(c[0] for c in coords) / len(coords)
+        lon = sum(c[1] for c in coords) / len(coords)
+        marker = folium.Marker(
+            [lat, lon],
+            tooltip=region,
+            icon=folium.Icon(color="blue", icon="info-sign")
+        )
+        marker.add_to(m)
+        marker_id = marker.get_name()
+        click_script = f"""
+        var {marker_id} = L.marker([{lat}, {lon}], {{icon: L.AwesomeMarkers.icon({{icon: 'info-sign', prefix: 'fa', markerColor: 'blue'}})}})
+            .bindTooltip('{region}')
+            .addTo(mapInstance);
+        {marker_id}.on('click', function() {{
+            if (window.parent && window.parent.document.getElementById('region')) {{
+                window.parent.document.getElementById('region').value = '{region}';
+                window.parent.updatePostcodes();
+                window.parent.document.forms[0].submit();
+            }}
+        }});
+        """
+        marker_scripts += click_script
     
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
     
-    # Update Leaflet and heatmap script sources
+    # Include Leaflet Awesome Markers for better icons
     m.get_root().html.add_child(folium.Element("""
     <style>
         html, body { width: 100%; height: 100%; margin: 0; padding: 0; }
@@ -436,6 +443,8 @@ def generate_heatmap(df):
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.css"/>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             if (typeof L !== 'undefined' && document.getElementById('map')) {
@@ -443,6 +452,7 @@ def generate_heatmap(df):
                 setTimeout(function() {
                     mapInstance.invalidateSize();
                     var heat = L.heatLayer(""" + str(heat_data) + """, {radius: 15, blur: 20}).addTo(mapInstance);
+                    """ + marker_scripts + """
                 }, 100);
             }
         });
