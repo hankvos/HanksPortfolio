@@ -26,7 +26,8 @@ REGION_POSTCODES = {
     "Coffs Harbour - Grafton": ["2370", "2450", "2456", "2460", "2462", "2463", "2464", "2465", "2466", "2469", "2441", "2448", "2449", "2452", "2453", "2454", "2455"],
     "Hunter Valley excl Newcastle": ["2250", "2311", "2320", "2321", "2322", "2323", "2325", "2326", "2327", "2330", "2331", "2334", "2335", "2420", "2421", "2314", "2315", "2316", "2317", "2318", "2319", "2324", "2328", "2329", "2333", "2336", "2337", "2338", "2850"],
     "Mid North Coast": ["2312", "2324", "2415", "2420", "2422", "2423", "2425", "2428", "2429", "2430", "2431", "2440", "2441", "2447", "2448", "2449", "2898", "2439", "2443", "2444", "2445", "2446", "2424", "2426", "2427"],
-    "Newcastle and Lake Macquarie": ["2259", "2264", "2265", "2267", "2278", "2280", "2281", "2282", "2283", "2284", "2285", "2286", "2287", "2289", "2290", "2291", "2292", "2293", "2294", "2295", "2296", "2297", "2298", "2299", "2300", "2302", "2303", "2304", "2305", "2306", "2307", "2308", "2318", "2322", "2323"]
+    "Newcastle and Lake Macquarie": ["2259", "2264", "2265", "2267", "2278", "2280", "2281", "2282", "2283", "2284", "2285", "2286", "2287", "2289", "2290", "2291", "2292", "2293", "2294", "2295", "2296", "2297", "2298", "2299", "2300", "2302", "2303", "2304", "2305", "2306", "2307", "2308", "2318", "2322", "2323"],
+    "Richmond-Tweed": ["2469", "2470", "2471", "2472", "2473", "2474", "2475", "2476", "2477", "2478", "2479", "2480", "2481", "2482", "2483", "2484", "2485", "2486", "2487", "2488", "2489", "2490"]
 }
 
 def expand_postcode_ranges(ranges):
@@ -45,7 +46,7 @@ PROPERTY_DF = None
 REGION_SUBURBS = {}
 
 def load_property_data(zip_files=None):
-    """Load property data: 202410*-202412* from 2024, all from 2025, excluding records < 2 months before earliest 2024 month."""
+    """Load property data: 202410*-202412* from 2024, all from 2025, excluding records < 1 month before earliest 2024 month."""
     if zip_files is None:
         zip_files = glob.glob("[2][0][2][4-5].zip")
         print(f"ZIP files found: {zip_files}")
@@ -63,7 +64,7 @@ def load_property_data(zip_files=None):
                     month = int(name[4:6])
                     if month in [10, 11, 12] and month < earliest_month_2024:
                         earliest_month_2024 = month
-    cutoff_month = earliest_month_2024 - 2  # Two months prior
+    cutoff_month = earliest_month_2024 - 1  # One month prior
     print(f"Earliest 2024 month: {earliest_month_2024}, Cutoff month: {cutoff_month}")
 
     column_names = [
@@ -103,8 +104,8 @@ def load_property_data(zip_files=None):
                                                     if settlement_date:
                                                         year = int(settlement_date[:4])
                                                         month = int(settlement_date[4:6])
-                                                        if year == 2024 and month < cutoff_month:
-                                                            continue  # Exclude records before cutoff
+                                                        if year == 2024 and month <= cutoff_month:  # Changed < to <= to include cutoff month
+                                                            continue  # Exclude records up to cutoff
                                                         date_counts[settlement_date] = date_counts.get(settlement_date, 0) + 1
                                                         yield record
                 elif dat_files:
@@ -125,8 +126,8 @@ def load_property_data(zip_files=None):
                                     if settlement_date:
                                         year = int(settlement_date[:4])
                                         month = int(settlement_date[4:6])
-                                        if year == 2024 and month < cutoff_month:
-                                            continue  # Exclude records before cutoff
+                                        if year == 2024 and month <= cutoff_month:  # Changed < to <= to include cutoff month
+                                            continue  # Exclude records up to cutoff
                                         date_counts[settlement_date] = date_counts.get(settlement_date, 0) + 1
                                         yield record
         print("Unique Settlement Dates and Counts:", date_counts)
@@ -276,7 +277,7 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
     bars = ax.bar(labels, prices, color='#4682B4', edgecolor='black', width=0.7, alpha=0.9)
     
     ax.set_title(f"{title_prefix}{date_range}", fontsize=14, weight='bold', pad=20, color='#333')
-    ax.set_xlabel("" if chart_type in ["region", "suburb"] else "Postcode", fontsize=12, weight='bold', color='#555')
+    ax.set_xlabel("", fontsize=12, weight='bold', color='#555')  # Removed all x-axis labels
     ax.set_ylabel("Median Price ($)", fontsize=12, weight='bold', color='#555')
     ax.set_xticks(range(len(labels)))
     ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=10, color='#333')
@@ -402,7 +403,6 @@ def index():
 
             if selected_region in REGION_POSTCODE_LIST:
                 postcodes = sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(REGION_POSTCODE_LIST[selected_region])]["Postcode"].unique())
-                # Populate suburbs based on region if no postcode selected, otherwise filter by postcode
                 if not selected_postcode:
                     suburbs = sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(REGION_POSTCODE_LIST[selected_region])]["Suburb"].unique())
                 else:
@@ -465,10 +465,10 @@ def get_suburbs():
     region = request.args.get("region")
     postcode = request.args.get("postcode")
     if region in REGION_POSTCODE_LIST:
-        if postcode:  # If postcode is provided, filter by it
+        if postcode:
             region_data = PROPERTY_DF[(PROPERTY_DF["Postcode"] == postcode) & (PROPERTY_DF["Postcode"].isin(REGION_POSTCODE_LIST[region]))]
             return jsonify(sorted(region_data["Suburb"].unique()))
-        else:  # If no postcode, return all suburbs in the region
+        else:
             region_data = PROPERTY_DF[PROPERTY_DF["Postcode"].isin(REGION_POSTCODE_LIST[region])]
             return jsonify(sorted(region_data["Suburb"].unique()))
     return jsonify([])
