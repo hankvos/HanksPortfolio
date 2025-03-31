@@ -381,7 +381,6 @@ def generate_heatmap(df):
         min_lon, max_lon = min(c[1] for c in all_coords), max(c[1] for c in all_coords)
         center_lat = (min_lat + max_lat) / 2
         center_lon = (min_lon + max_lon) / 2
-        logging.debug(f"Map bounds: [{min_lat}, {min_lon}] to [{max_lat}, {max_lon}]")
     
     m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="CartoDB positron")
     
@@ -391,15 +390,10 @@ def generate_heatmap(df):
         if row["Postcode"] in POSTCODE_COORDS:
             lat, lon = POSTCODE_COORDS[row["Postcode"]]
             heat_data.append([lat, lon, row["Price"] / 1e6])
-    logging.info(f"Heatmap data points: {len(heat_data)}")
     
     if heat_data:
         HeatMap(heat_data, radius=15, blur=20).add_to(m)
-    else:
-        logging.warning("No valid heatmap data points to add.")
     
-    marker_data = []
-    marker_index = 0
     for region, postcodes in REGION_POSTCODE_LIST.items():
         coords = [POSTCODE_COORDS.get(pc, None) for pc in postcodes if pc in POSTCODE_COORDS]
         coords = [c for c in coords if c]
@@ -408,68 +402,56 @@ def generate_heatmap(df):
             continue
         lat = sum(c[0] for c in coords) / len(coords)
         lon = sum(c[1] for c in coords) / len(coords)
-        try:
-            folium.Marker(
-                [lat, lon],
-                tooltip=region,
-                icon=folium.Icon(color="blue", icon="info-sign")
-            ).add_to(m)
-            marker_data.append({"index": marker_index, "region": region})
-            logging.debug(f"Added marker for {region} at index {marker_index}")
-            marker_index += 1
-        except Exception as e:
-            logging.error(f"Error adding marker for {region}: {e}")
-    
-    logging.info(f"Total markers added: {marker_index}")
-    
-    # Add JavaScript for marker clicks at the end
-    click_js = """
-    <script>
-    function onMarkerClick(region) {
-        console.log('Marker clicked: ' + region);
-        if (region) {
-            parent.document.getElementById('region').value = region;
-            parent.updatePostcodes();
-            parent.document.forms[0].submit();
-        } else {
-            console.error('Region not found');
-        }
-    }
-    document.addEventListener('DOMContentLoaded', function() {
-        var markers = document.querySelectorAll('.leaflet-marker-icon');
-        %s
-    });
-    </script>
-    """
-    marker_scripts = "\n".join([
-        f"if (markers[{data['index']}]) {{ markers[{data['index']}].addEventListener('click', function() {{ onMarkerClick('{data['region']}'); }}); }} else {{ console.error('Marker at index {data['index']} not found'); }}"
-        for data in marker_data
-    ])
-    try:
-        m.get_root().html.add_child(folium.Element(click_js % marker_scripts))
-        logging.debug("Click JavaScript added to map HTML.")
-    except Exception as e:
-        logging.error(f"Failed to add click JavaScript: {e}")
+        # Add marker with clickable popup
+        popup_html = f"""
+        <a href="#" onclick="parent.document.getElementById('region').value='{region}';
+                           parent.updatePostcodes();
+                           parent.document.forms[0].submit();">{region}</a>
+        """
+        folium.Marker(
+            [lat, lon],
+            tooltip=region,
+            popup=folium.Popup(popup_html, max_width=200),
+            icon=folium.Icon(color="blue", icon="info-sign")
+        ).add_to(m)
     
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
     
     heatmap_path = "static/heatmap.html"
-    try:
-        m.save(heatmap_path)
-        if os.path.exists(heatmap_path):
-            logging.info(f"Heatmap saved successfully to {heatmap_path}")
-        else:
-            logging.error("Heatmap file was not created.")
-    except Exception as e:
-        logging.error(f"Failed to save heatmap: {e}")
-    
+    m.save(heatmap_path)
+    logging.info(f"Heatmap saved to {heatmap_path}")
     return heatmap_path
+
+def generate_price_size_scatter(df, selected_region):
+    os.makedirs('static', exist_ok=True')
+    df_clean = df[df["Size"].str.match(r'^\d+(\.\d+)?\s*sqm$')].copy()
+    df_clean["SizeNumeric"] = df_clean["Size"].str.replace(" sqm", "").astype(float)
+    
+    if df_clean.empty:
+        logging.warning(f"No valid size data for scatter plot in {selected_region}")
+        return None
+    
+    fig, ax = plt.subplots(figsize=(10, 5), facecolor='#f5f5f5')
+    ax.scatter(df_clean["SizeNumeric"], df_clean["Price"] / 1e6, alpha=0.5, color='#4682B4')
+    
+    ax.set_title(f"Price vs Size - {selected_region} (Oct 2024 - Mar 2025)", fontsize=14, weight='bold')
+    ax.set_xlabel("Size (sqm)", fontsize=12)
+    ax.set_ylabel("Price ($M)", fontsize=12)
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
+    ax.grid(True, linestyle='--', alpha=0.3)
+    
+    plt.tight_layout()
+    scatter_path = 'static/price_size_scatter.png'
+    plt.savefig(scatter_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    return scatter_path
 
 @app.route("/", methods=["GET", "POST"])
 def index():
     try:
         regions = sorted(REGION_POSTCODE_LIST.keys())
+        property_types = sorted(PROPERTY_DF["Property Type"].unique())
         selected_region = selected_postcode = selected_suburb = None
         selected_property_type = "HOUSE"
         properties = []
@@ -477,6 +459,7 @@ def index():
         sort_by = "Address"
         postcodes = suburbs = []
         price_hist_path = region_timeline_path = postcode_timeline_path = suburb_timeline_path = None
+        price_size_scatter_path = None
         stats = {"mean": 0, "median": 0, "std": 0}
         
         median_by_region = calculate_median_house_by_region(PROPERTY_DF)
@@ -502,10 +485,11 @@ def index():
                 properties = region_data[["Address", "Price", "Size", "Settlement Date", "Map Link"]].to_dict("records")
                 avg_price = calculate_avg_price(region_data)
                 price_hist_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path = generate_plots(region_data, selected_region, selected_postcode, selected_suburb)
+                price_size_scatter_path = generate_price_size_scatter(region_data, selected_region or "Selected Area")
                 stats = calculate_stats(region_data)
 
                 if selected_region and not selected_postcode:
-                    median_by_postcode = calculate_median_house_by_postcode(PROPERTY_DF, selected_region)
+                    median_by_postcode = calculate_median_house_by_postcode(PROPERTY_DF, selfiltered_region)
                     median_chart_path = generate_median_house_price_chart(PROPERTY_DF, median_by_postcode, chart_type="postcode", selected_region=selected_region)
                 elif selected_postcode:
                     median_by_suburb = calculate_median_house_by_suburb(PROPERTY_DF, selected_postcode)
@@ -516,6 +500,7 @@ def index():
             regions=regions,
             postcodes=postcodes,
             suburbs=suburbs,
+            property_types=property_types,
             selected_region=selected_region,
             selected_postcode=selected_postcode,
             selected_suburb=selected_suburb,
@@ -527,10 +512,10 @@ def index():
             region_timeline_path=region_timeline_path,
             postcode_timeline_path=postcode_timeline_path,
             suburb_timeline_path=suburb_timeline_path,
+            price_size_scatter_path=price_size_scatter_path,
             stats=stats,
             median_chart_path=median_chart_path,
             heatmap_path=heatmap_path,
-            price_size_scatter_path=None,
             data_source=DATA_SOURCE
         )
     except Exception as e:
@@ -539,6 +524,7 @@ def index():
             "index.html",
             error=str(e),
             regions=sorted(REGION_POSTCODE_LIST.keys()),
+            property_types=sorted(PROPERTY_DF["Property Type"].unique()),
             data_source=DATA_SOURCE
         )
 

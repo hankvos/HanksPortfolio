@@ -4,11 +4,35 @@ body {
     background: #f5f5f5;
 }
 
+.data-source-top {
+    background: #4682B4;
+    color: white;
+    text-align: center;
+    padding: 10px;
+    margin-bottom: 20px;
+    font-size: 1.1em;
+    font-weight: bold;
+}
+
 .container {
     max-width: 1200px;
     margin: auto;
     padding: 20px;
     background: white;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.left-column {
+    flex: 1;
+    min-width: 300px;
+    max-width: 400px;
+}
+
+.right-column {
+    flex: 2;
+    min-width: 400px;
 }
 
 h1 {
@@ -27,6 +51,8 @@ label {
 select, button {
     padding: 8px;
     margin: 5px;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 button {
@@ -62,5 +88,16 @@ th {
 
 th:last-child, td:last-child {
     text-align: center;
-    width: 60px; /* Fixed width for the Map column */
+    width: 60px;
+}
+
+iframe {
+    width: 100%;
+    height: 300px;
+    border: none;
+    margin-bottom: 20px;
+}
+
+.stats {
+    margin-top: 20px;
 }
