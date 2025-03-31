@@ -17,12 +17,10 @@ from folium.plugins import HeatMap
 
 app = Flask(__name__)
 
-# Add custom Jinja2 filter for comma-separated numbers
 def intcomma(value):
     return "{:,}".format(int(value))
 app.jinja_env.filters['intcomma'] = intcomma
 
-# Define regions and their postcode ranges
 REGION_POSTCODES = {
     "Central Coast": ["2083", "2250", "2251", "2256", "2257", "2258", "2259", "2260", "2261", "2262", "2263", "2775"],
     "Coffs Harbour - Grafton": ["2370", "2450", "2456", "2460", "2462", "2463", "2464", "2465", "2466", "2469", "2441", "2448", "2449", "2452", "2453", "2454", "2455"],
@@ -32,7 +30,6 @@ REGION_POSTCODES = {
     "Richmond-Tweed": ["2469", "2470", "2471", "2472", "2473", "2474", "2475", "2476", "2477", "2478", "2479", "2480", "2481", "2482", "2483", "2484", "2485", "2486", "2487", "2488", "2489", "2490"]
 }
 
-# Approximate coordinates for key postcodes (expand this as needed)
 POSTCODE_COORDS = {
     "2250": [-33.28, 151.41],  # Central Coast (Gosford)
     "2450": [-30.30, 153.11],  # Coffs Harbour
@@ -41,11 +38,9 @@ POSTCODE_COORDS = {
     "2320": [-32.72, 151.55],  # Maitland (Hunter Valley)
     "2290": [-32.93, 151.77],  # Newcastle
     "2430": [-31.91, 152.46]   # Taree (Mid North Coast)
-    # Add more postcodes as needed or source a full dataset
 }
 
 def expand_postcode_ranges(ranges):
-    """Expand postcode ranges (e.g., '2250-2252' -> ['2250', '2251', '2252'])."""
     postcodes = []
     for r in ranges:
         if "-" in r:
@@ -60,7 +55,6 @@ PROPERTY_DF = None
 REGION_SUBURBS = {}
 
 def load_property_data(zip_files=None):
-    """Load property data: 202410*-202412* from 2024, all from 2025, excluding records <= 1 month before earliest 2024 month."""
     if zip_files is None:
         zip_files = glob.glob("[2][0][2][4-5].zip")
         print(f"ZIP files found: {zip_files}")
@@ -151,11 +145,8 @@ def load_property_data(zip_files=None):
     if df.empty:
         raise ValueError("No B records found in any .DAT files after filtering.")
     
-    print("Raw Settlement Dates (first 5 records):", df["Settlement Date"].head().tolist())
-    
     df["Settlement Date Raw"] = pd.to_datetime(df["Settlement Date"], format="%Y%m%d", errors="coerce")
     df = df[df["Settlement Date Raw"].dt.year.isin([2024, 2025])].copy()
-    print(f"After filtering to 2024/2025, records remaining: {len(df)}")
     
     def determine_property_type(row):
         base_type = row["Property Type"].strip().upper()
@@ -179,12 +170,7 @@ def load_property_data(zip_files=None):
     df["Sale Price"] = pd.to_numeric(df["Sale Price"], errors="coerce")
     df_filtered = df[df["Sale Price"].notna() & df["Sale Price"].gt(0)].copy()
     
-    if df_filtered.empty:
-        raise ValueError("No valid Sale Price data after filtering.")
-    
-    print("Before conversion (first 5 records):", df_filtered["Settlement Date"].head().tolist())
     df_filtered["Settlement Date"] = df_filtered["Settlement Date Raw"].dt.strftime("%d/%m/%Y")
-    print("After conversion (first 5 records):", df_filtered["Settlement Date"].head().tolist())
     
     for col in ["Unit Number", "House Number", "Street Name", "Suburb", "Postcode"]:
         df_filtered[col] = df_filtered[col].astype(str).replace("", "")
@@ -205,7 +191,6 @@ def load_property_data(zip_files=None):
     return df_filtered
 
 def get_region_data(df, region=None, postcode=None, suburb=None, property_type=None, sort_by="Address"):
-    """Filter and sort property data based on user inputs."""
     region_data = df.copy()
     if region and region in REGION_POSTCODE_LIST:
         region_data = region_data[region_data["Postcode"].isin(REGION_POSTCODE_LIST[region])]
@@ -232,11 +217,9 @@ def get_region_data(df, region=None, postcode=None, suburb=None, property_type=N
     return region_data.drop(columns=["HouseNumNumeric", "SizeNumeric", "SaleDateNumeric"], errors="ignore")
 
 def calculate_avg_price(properties):
-    """Calculate average price from a DataFrame."""
     return round(properties["Price"].mean()) if not properties["Price"].empty else 0
 
 def calculate_median_house_by_region(df):
-    """Calculate median house price by region, sorted by price."""
     median_by_region = {}
     for region, postcodes in REGION_POSTCODE_LIST.items():
         region_data = df[(df["Postcode"].isin(postcodes)) & (df["Property Type"] == "HOUSE")]
@@ -247,7 +230,6 @@ def calculate_median_house_by_region(df):
     return dict(sorted(median_by_region.items(), key=lambda x: x[1]["price"]))
 
 def calculate_median_house_by_postcode(df, region):
-    """Calculate median house price by postcode within a region, sorted by price."""
     median_by_postcode = {}
     region_data = df[(df["Postcode"].isin(REGION_POSTCODE_LIST[region])) & (df["Property Type"] == "HOUSE")]
     for postcode in sorted(region_data["Postcode"].unique()):
@@ -259,7 +241,6 @@ def calculate_median_house_by_postcode(df, region):
     return dict(sorted(median_by_postcode.items(), key=lambda x: x[1]["price"]))
 
 def calculate_median_house_by_suburb(df, postcode):
-    """Calculate median house price by suburb within a postcode, sorted by price."""
     median_by_suburb = {}
     postcode_data = df[(df["Postcode"] == postcode) & (df["Property Type"] == "HOUSE")]
     for suburb in sorted(postcode_data["Suburb"].unique()):
@@ -271,7 +252,6 @@ def calculate_median_house_by_suburb(df, postcode):
     return dict(sorted(median_by_suburb.items(), key=lambda x: x[1]["price"]))
 
 def generate_median_house_price_chart(df, data_dict, chart_type="region", selected_region=None, selected_postcode=None):
-    """Generate a bar chart for median house prices, sorted by price, with labels only for region."""
     if not data_dict:
         return None
     os.makedirs('static', exist_ok=True)
@@ -310,7 +290,6 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
     return chart_path
 
 def generate_price_timeline_chart(region_data, selected_area, area_type="Region"):
-    """Generate a timeline chart for median prices by month in a region, postcode, or suburb."""
     os.makedirs('static', exist_ok=True)
 
     region_data["Month"] = region_data["Settlement Date Raw"].dt.to_period('M')
@@ -341,7 +320,6 @@ def generate_price_timeline_chart(region_data, selected_area, area_type="Region"
     return timeline_path
 
 def generate_plots(region_data, selected_region, selected_postcode, selected_suburb):
-    """Generate histogram and optional timeline for region, postcode, or suburb."""
     os.makedirs('static', exist_ok=True)
 
     prices = region_data["Price"].dropna() / 1e6
@@ -377,7 +355,6 @@ def generate_plots(region_data, selected_region, selected_postcode, selected_sub
     return price_hist_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path
 
 def calculate_stats(region_data):
-    """Calculate mean, median, and standard deviation of prices."""
     prices = region_data["Price"].dropna()
     return {
         "mean": round(np.mean(prices)) if not prices.empty else 0,
@@ -386,35 +363,51 @@ def calculate_stats(region_data):
     }
 
 def generate_heatmap(df):
-    """Generate a heat map of median house prices by postcode."""
     os.makedirs('static', exist_ok=True)
     
-    # Base map centered on Northern NSW
-    m = folium.Map(location=[-30.0, 153.0], zoom_start=7, tiles="CartoDB positron")
+    # Calculate bounds to fit all regions
+    all_coords = [coord for pc in POSTCODE_COORDS for coord in [POSTCODE_COORDS[pc]]]
+    if all_coords:
+        min_lat, max_lat = min(c[0] for c in all_coords), max(c[0] for c in all_coords)
+        min_lon, max_lon = min(c[1] for c in all_coords), max(c[1] for c in all_coords)
+        center_lat = (min_lat + max_lat) / 2
+        center_lon = (min_lon + max_lon) / 2
+    else:
+        center_lat, center_lon = -30.0, 153.0  # Default Northern NSW
     
-    # Aggregate median price by postcode
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="CartoDB positron")
+    
+    # Aggregate median price by postcode for heat map
     heatmap_data = df.groupby("Postcode").agg({"Price": "median"}).reset_index()
-    
-    # Heat map data: [latitude, longitude, weight (median price)]
     heat_data = []
     for _, row in heatmap_data.iterrows():
         if row["Postcode"] in POSTCODE_COORDS:
             lat, lon = POSTCODE_COORDS[row["Postcode"]]
-            heat_data.append([lat, lon, row["Price"] / 1e6])  # Normalize price
+            heat_data.append([lat, lon, row["Price"] / 1e6])
     
     HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
-    # Add clickable markers for regions
+    # Add markers for all regions
     for region, postcodes in REGION_POSTCODE_LIST.items():
-        coords = [POSTCODE_COORDS.get(pc, [0, 0]) for pc in postcodes if pc in POSTCODE_COORDS]
-        if coords and any(c[0] != 0 for c in coords):  # Avoid invalid coords
-            lat = sum(c[0] for c in coords if c[0] != 0) / len([c for c in coords if c[0] != 0])
-            lon = sum(c[1] for c in coords if c[1] != 0) / len([c for c in coords if c[1] != 0])
+        coords = [POSTCODE_COORDS.get(pc, None) for pc in postcodes if pc in POSTCODE_COORDS]
+        coords = [c for c in coords if c]  # Filter out None
+        if coords:
+            lat = sum(c[0] for c in coords) / len(coords)
+            lon = sum(c[1] for c in coords) / len(coords)
+            popup_html = f"""
+            <a href="#" onclick="parent.document.getElementById('region').value='{region}';
+                              parent.updatePostcodes();
+                              parent.document.forms[0].submit();">{region}</a>
+            """
             folium.Marker(
                 [lat, lon],
-                popup=f'<a href="/?region={urllib.parse.quote_plus(region)}" target="_self">{region}</a>',
+                popup=folium.Popup(popup_html, max_width=300),
                 tooltip=region
             ).add_to(m)
+    
+    # Fit map to bounds if coordinates exist
+    if all_coords:
+        m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
     
     heatmap_path = "static/heatmap.html"
     m.save(heatmap_path)
@@ -422,7 +415,6 @@ def generate_heatmap(df):
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    """Main route for rendering the property analyzer interface."""
     try:
         regions = sorted(REGION_POSTCODE_LIST.keys())
         selected_region = selected_postcode = selected_suburb = None
@@ -499,7 +491,6 @@ def index():
 
 @app.route("/get_postcodes", methods=["GET"])
 def get_postcodes():
-    """Return postcodes for a selected region."""
     region = request.args.get("region")
     if region in REGION_POSTCODE_LIST:
         return jsonify(sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(REGION_POSTCODE_LIST[region])]["Postcode"].unique()))
@@ -507,7 +498,6 @@ def get_postcodes():
 
 @app.route("/get_suburbs", methods=["GET"])
 def get_suburbs():
-    """Return suburbs for a selected region, optionally filtered by postcode."""
     region = request.args.get("region")
     postcode = request.args.get("postcode")
     if region in REGION_POSTCODE_LIST:
@@ -520,13 +510,11 @@ def get_suburbs():
     return jsonify([])
 
 def initialize_data():
-    """Initialize global PROPERTY_DF and REGION_SUBURBS."""
     global PROPERTY_DF, REGION_SUBURBS
     PROPERTY_DF = load_property_data()
     REGION_SUBURBS = {region: sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(postcodes)]["Suburb"].unique())
                       for region, postcodes in REGION_POSTCODE_LIST.items()}
 
-# Initialize data at startup
 initialize_data()
 
 if os.environ.get("RENDER"):
