@@ -388,48 +388,40 @@ def generate_heatmap(df):
     
     m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="CartoDB positron")
     
+    # Add heatmap data
     heatmap_data = df[df["Postcode"].isin(POSTCODE_COORDS.keys())].groupby("Postcode").agg({"Price": "median"}).reset_index()
-    heat_data = []
-    for _, row in heatmap_data.iterrows():
-        if row["Postcode"] in POSTCODE_COORDS:
-            lat, lon = POSTCODE_COORDS[row["Postcode"]]
-            heat_data.append([lat, lon, row["Price"] / 1e6])
+    heat_data = [[POSTCODE_COORDS[row["Postcode"]][0], POSTCODE_COORDS[row["Postcode"]][1], row["Price"] / 1e6]
+                 for _, row in heatmap_data.iterrows() if row["Postcode"] in POSTCODE_COORDS]
     
     logging.info(f"Heatmap data points: {len(heat_data)}")
-    
     if heat_data:
         HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
-    # Generate marker script
-    marker_scripts = "console.log('Adding markers...');\n"
+    # Add markers with click events
+    marker_scripts = ""
     for region, postcodes in REGION_POSTCODE_LIST.items():
-        coords = [POSTCODE_COORDS.get(pc, None) for pc in postcodes if pc in POSTCODE_COORDS]
+        coords = [POSTCODE_COORDS.get(pc) for pc in postcodes if pc in POSTCODE_COORDS]
         coords = [c for c in coords if c]
-        if not coords:
-            logging.warning(f"No valid coordinates for region: {region}")
-            continue
-        lat = sum(c[0] for c in coords) / len(coords)
-        lon = sum(c[1] for c in coords) / len(coords)
-        marker_scripts += f"""
-        console.log('Adding marker for {region} at [{lat}, {lon}]');
-        L.marker([{lat}, {lon}])
-            .addTo(mapInstance)
-            .bindTooltip('{region}', {{permanent: false, direction: 'top'}})
-            .on('click', function() {{
-                console.log('Marker clicked: {region}');
-                try {{
+        if coords:
+            lat = sum(c[0] for c in coords) / len(coords)
+            lon = sum(c[1] for c in coords) / len(coords)
+            marker_scripts += f"""
+            L.marker([{lat}, {lon}])
+                .addTo(map)
+                .bindTooltip('{region}', {{direction: 'top'}})
+                .on('click', function() {{
                     window.parent.document.getElementById('region').value = '{region}';
                     window.parent.updatePostcodes();
                     window.parent.document.forms[0].submit();
-                }} catch (e) {{
-                    console.log('Error on marker click: ' + e);
-                }}
-            }});
-        """
+                }});
+            """
+        else:
+            logging.warning(f"No valid coordinates for region: {region}")
     
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
     
+    # Inject CSS and JavaScript
     m.get_root().html.add_child(folium.Element("""
     <style>
         html, body { width: 100%; height: 100%; margin: 0; padding: 0; }
@@ -440,37 +432,28 @@ def generate_heatmap(df):
     <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOM loaded, checking Leaflet and map');
-            if (typeof L !== 'undefined' && document.getElementById('map')) {
-                console.log('Leaflet and map div found');
-                var mapInstance = map;
+            console.log('DOM loaded, initializing map');
+            var map = document.getElementById('map') ? map : null;
+            if (typeof L !== 'undefined' && map) {
                 setTimeout(function() {
-                    console.log('Invalidating map size and adding layers');
-                    mapInstance.invalidateSize();
-                    var heat = L.heatLayer(""" + str(heat_data) + """, {radius: 15, blur: 20}).addTo(mapInstance);
+                    console.log('Adding heatmap and markers');
+                    map.invalidateSize();
                     """ + marker_scripts + """
-                    console.log('Markers added');
-                }, 100);
+                }, 500);
             } else {
-                console.log('Leaflet or map div not found');
+                console.error('Leaflet or map element not found');
             }
         });
     </script>
     """))
     
     m.save(heatmap_path)
-    logging.info(f"Heatmap saved to {heatmap_path}")
-    logging.info(f"File exists after save: {os.path.exists(heatmap_path)}")
-    with open(heatmap_path, 'r') as f:
-        content = f.read()
-        logging.info(f"Heatmap content length: {len(content)} bytes")
-    
+    logging.info(f"Heatmap saved to {heatmap_path}, file exists: {os.path.exists(heatmap_path)}")
     return "/static/heatmap.html"
 
 def generate_price_size_scatter(df, selected_region):
     os.makedirs('static', exist_ok=True)
     
-    # Aggregate data by month
     df["Month"] = df["Settlement Date Raw"].dt.to_period('M').dt.to_timestamp()
     monthly_data = df.groupby("Month").agg({"Price": "median"}).reset_index()
     
@@ -510,7 +493,6 @@ def index():
         price_size_scatter_path = None
         stats = {"mean": 0, "median": 0, "std": 0}
         
-        # Generate heatmap on every request
         heatmap_path = generate_heatmap(PROPERTY_DF)
         logging.info(f"Passing heatmap_path to template: {heatmap_path}")
         
