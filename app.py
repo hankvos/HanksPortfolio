@@ -372,7 +372,6 @@ def calculate_stats(region_data):
 def generate_heatmap(df):
     os.makedirs('static', exist_ok=True)
     
-    # Ensure heatmap.html is regenerated fresh
     heatmap_path = os.path.join(app.static_folder, "heatmap.html")
     if os.path.exists(heatmap_path):
         os.remove(heatmap_path)
@@ -428,6 +427,17 @@ def generate_heatmap(df):
     
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
+    
+    # Add explicit initialization script
+    m.get_root().html.add_child(folium.Element("""
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof L !== 'undefined' && document.getElementById('map')) {
+                map.invalidateSize();
+            }
+        });
+    </script>
+    """))
     
     m.save(heatmap_path)
     logging.info(f"Heatmap saved to {heatmap_path}")
