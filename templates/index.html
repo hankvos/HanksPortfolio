@@ -92,12 +92,21 @@
             color: #666;
             margin-top: 20px;
         }
+        iframe {
+            width: 100%;
+            height: 300px;
+            border: none;
+            margin-bottom: 20px;
+        }
     </style>
 </head>
 <body>
     <h1>Northern NSW Property Sales Analyser</h1>
     <div class="container">
         <div class="left-column">
+            {% if heatmap_path %}
+                <iframe src="{{ url_for('static', filename=heatmap_path.split('/')[-1]) }}" frameborder="0"></iframe>
+            {% endif %}
             <form method="POST">
                 <label for="region">Region:</label>
                 <select id="region" name="region" onchange="updatePostcodes()">

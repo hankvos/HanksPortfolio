@@ -12,6 +12,8 @@ import matplotlib.ticker as mticker
 import numpy as np
 import os
 import urllib.parse
+import folium
+from folium.plugins import HeatMap
 
 app = Flask(__name__)
 
@@ -30,6 +32,18 @@ REGION_POSTCODES = {
     "Richmond-Tweed": ["2469", "2470", "2471", "2472", "2473", "2474", "2475", "2476", "2477", "2478", "2479", "2480", "2481", "2482", "2483", "2484", "2485", "2486", "2487", "2488", "2489", "2490"]
 }
 
+# Approximate coordinates for key postcodes (expand this as needed)
+POSTCODE_COORDS = {
+    "2250": [-33.28, 151.41],  # Central Coast (Gosford)
+    "2450": [-30.30, 153.11],  # Coffs Harbour
+    "2460": [-29.69, 152.93],  # Grafton
+    "2480": [-28.81, 153.28],  # Lismore (Richmond-Tweed)
+    "2320": [-32.72, 151.55],  # Maitland (Hunter Valley)
+    "2290": [-32.93, 151.77],  # Newcastle
+    "2430": [-31.91, 152.46]   # Taree (Mid North Coast)
+    # Add more postcodes as needed or source a full dataset
+}
+
 def expand_postcode_ranges(ranges):
     """Expand postcode ranges (e.g., '2250-2252' -> ['2250', '2251', '2252'])."""
     postcodes = []
@@ -46,15 +60,14 @@ PROPERTY_DF = None
 REGION_SUBURBS = {}
 
 def load_property_data(zip_files=None):
-    """Load property data: 202410*-202412* from 2024, all from 2025, excluding records < 1 month before earliest 2024 month."""
+    """Load property data: 202410*-202412* from 2024, all from 2025, excluding records <= 1 month before earliest 2024 month."""
     if zip_files is None:
         zip_files = glob.glob("[2][0][2][4-5].zip")
         print(f"ZIP files found: {zip_files}")
     if not zip_files:
         raise ValueError("No ZIP files found for 2024-2025.")
 
-    # Determine the earliest 2024 month from ZIP files
-    earliest_month_2024 = 12  # Default to December if no 2024 files
+    earliest_month_2024 = 12
     for zip_path in zip_files:
         if "2024" in zip_path:
             with zipfile.ZipFile(zip_path, "r") as outer_zip:
@@ -64,7 +77,7 @@ def load_property_data(zip_files=None):
                     month = int(name[4:6])
                     if month in [10, 11, 12] and month < earliest_month_2024:
                         earliest_month_2024 = month
-    cutoff_month = earliest_month_2024 - 1  # One month prior
+    cutoff_month = earliest_month_2024 - 1
     print(f"Earliest 2024 month: {earliest_month_2024}, Cutoff month: {cutoff_month}")
 
     column_names = [
@@ -104,8 +117,8 @@ def load_property_data(zip_files=None):
                                                     if settlement_date:
                                                         year = int(settlement_date[:4])
                                                         month = int(settlement_date[4:6])
-                                                        if year == 2024 and month <= cutoff_month:  # Changed < to <= to include cutoff month
-                                                            continue  # Exclude records up to cutoff
+                                                        if year == 2024 and month <= cutoff_month:
+                                                            continue
                                                         date_counts[settlement_date] = date_counts.get(settlement_date, 0) + 1
                                                         yield record
                 elif dat_files:
@@ -126,8 +139,8 @@ def load_property_data(zip_files=None):
                                     if settlement_date:
                                         year = int(settlement_date[:4])
                                         month = int(settlement_date[4:6])
-                                        if year == 2024 and month <= cutoff_month:  # Changed < to <= to include cutoff month
-                                            continue  # Exclude records up to cutoff
+                                        if year == 2024 and month <= cutoff_month:
+                                            continue
                                         date_counts[settlement_date] = date_counts.get(settlement_date, 0) + 1
                                         yield record
         print("Unique Settlement Dates and Counts:", date_counts)
@@ -140,7 +153,6 @@ def load_property_data(zip_files=None):
     
     print("Raw Settlement Dates (first 5 records):", df["Settlement Date"].head().tolist())
     
-    # Filter to only 2024 and 2025 Settlement Dates (redundant with generator filter, but kept for clarity)
     df["Settlement Date Raw"] = pd.to_datetime(df["Settlement Date"], format="%Y%m%d", errors="coerce")
     df = df[df["Settlement Date Raw"].dt.year.isin([2024, 2025])].copy()
     print(f"After filtering to 2024/2025, records remaining: {len(df)}")
@@ -277,7 +289,7 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
     bars = ax.bar(labels, prices, color='#4682B4', edgecolor='black', width=0.7, alpha=0.9)
     
     ax.set_title(f"{title_prefix}{date_range}", fontsize=14, weight='bold', pad=20, color='#333')
-    ax.set_xlabel("", fontsize=12, weight='bold', color='#555')  # Removed all x-axis labels
+    ax.set_xlabel("", fontsize=12, weight='bold', color='#555')
     ax.set_ylabel("Median Price ($)", fontsize=12, weight='bold', color='#555')
     ax.set_xticks(range(len(labels)))
     ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=10, color='#333')
@@ -285,7 +297,6 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
     ax.grid(True, axis='y', linestyle='--', alpha=0.3, color='#999')
     ax.set_facecolor('#ffffff')
 
-    # Add value labels only for region chart
     if chart_type == "region":
         for bar in bars:
             height = bar.get_height()
@@ -302,7 +313,6 @@ def generate_price_timeline_chart(region_data, selected_area, area_type="Region"
     """Generate a timeline chart for median prices by month in a region, postcode, or suburb."""
     os.makedirs('static', exist_ok=True)
 
-    # Group by month and calculate median price
     region_data["Month"] = region_data["Settlement Date Raw"].dt.to_period('M')
     monthly_prices = region_data.groupby("Month")["Price"].median().reset_index()
     monthly_prices["Month"] = monthly_prices["Month"].dt.to_timestamp()
@@ -334,7 +344,7 @@ def generate_plots(region_data, selected_region, selected_postcode, selected_sub
     """Generate histogram and optional timeline for region, postcode, or suburb."""
     os.makedirs('static', exist_ok=True)
 
-    prices = region_data["Price"].dropna() / 1e6  # Convert to millions
+    prices = region_data["Price"].dropna() / 1e6
     date_range = " (Oct 2024 - Mar 2025)"
 
     fig, ax = plt.subplots(figsize=(10, 5), facecolor='#f5f5f5')
@@ -354,7 +364,6 @@ def generate_plots(region_data, selected_region, selected_postcode, selected_sub
     plt.savefig(price_hist_path, dpi=150, bbox_inches='tight')
     plt.close()
 
-    # Generate timeline chart based on selection level
     region_timeline_path = None
     postcode_timeline_path = None
     suburb_timeline_path = None
@@ -376,6 +385,41 @@ def calculate_stats(region_data):
         "std": round(np.std(prices)) if not prices.empty else 0
     }
 
+def generate_heatmap(df):
+    """Generate a heat map of median house prices by postcode."""
+    os.makedirs('static', exist_ok=True)
+    
+    # Base map centered on Northern NSW
+    m = folium.Map(location=[-30.0, 153.0], zoom_start=7, tiles="CartoDB positron")
+    
+    # Aggregate median price by postcode
+    heatmap_data = df.groupby("Postcode").agg({"Price": "median"}).reset_index()
+    
+    # Heat map data: [latitude, longitude, weight (median price)]
+    heat_data = []
+    for _, row in heatmap_data.iterrows():
+        if row["Postcode"] in POSTCODE_COORDS:
+            lat, lon = POSTCODE_COORDS[row["Postcode"]]
+            heat_data.append([lat, lon, row["Price"] / 1e6])  # Normalize price
+    
+    HeatMap(heat_data, radius=15, blur=20).add_to(m)
+    
+    # Add clickable markers for regions
+    for region, postcodes in REGION_POSTCODE_LIST.items():
+        coords = [POSTCODE_COORDS.get(pc, [0, 0]) for pc in postcodes if pc in POSTCODE_COORDS]
+        if coords and any(c[0] != 0 for c in coords):  # Avoid invalid coords
+            lat = sum(c[0] for c in coords if c[0] != 0) / len([c for c in coords if c[0] != 0])
+            lon = sum(c[1] for c in coords if c[1] != 0) / len([c for c in coords if c[1] != 0])
+            folium.Marker(
+                [lat, lon],
+                popup=f'<a href="/?region={urllib.parse.quote_plus(region)}" target="_self">{region}</a>',
+                tooltip=region
+            ).add_to(m)
+    
+    heatmap_path = "static/heatmap.html"
+    m.save(heatmap_path)
+    return heatmap_path
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     """Main route for rendering the property analyzer interface."""
@@ -390,9 +434,10 @@ def index():
         price_hist_path = region_timeline_path = postcode_timeline_path = suburb_timeline_path = None
         stats = {"mean": 0, "median": 0, "std": 0}
         data_source = "Data provided by NSW Valuer General Property Sales Information, last updated March 24, 2025"
-
+        
         median_by_region = calculate_median_house_by_region(PROPERTY_DF)
         median_chart_path = generate_median_house_price_chart(PROPERTY_DF, median_by_region, chart_type="region")
+        heatmap_path = generate_heatmap(PROPERTY_DF)
 
         if request.method == "POST" and request.form.get("region"):
             selected_region = request.form.get("region")
@@ -440,6 +485,7 @@ def index():
             suburb_timeline_path=suburb_timeline_path,
             stats=stats,
             median_chart_path=median_chart_path,
+            heatmap_path=heatmap_path,
             price_size_scatter_path=None,
             data_source=data_source
         )
@@ -483,9 +529,8 @@ def initialize_data():
 # Initialize data at startup
 initialize_data()
 
-# Check if running on Render by looking for an environment variable Render sets
-if os.environ.get("RENDER"):  # Render sets this
+if os.environ.get("RENDER"):
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)  # Production
+    app.run(host="0.0.0.0", port=port, debug=False)
 else:
-    app.run(debug=True)  # Local development on 127.0.0.1:5000
+    app.run(debug=True)
