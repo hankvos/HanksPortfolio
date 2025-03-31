@@ -397,16 +397,15 @@ def generate_heatmap(df):
     else:
         logging.warning("No valid heatmap data points to add.")
     
-    # Add custom JavaScript for direct marker clicks
+    # Add custom JavaScript for marker clicks
     click_js = """
-    function onMarkerClick(e) {
-        var region = e.target.options.region;
+    function onMarkerClick(region) {
         if (region) {
             parent.document.getElementById('region').value = region;
             parent.updatePostcodes();
             parent.document.forms[0].submit();
         } else {
-            console.error('Region not found in marker options');
+            console.error('Region not found');
         }
     }
     """
@@ -432,12 +431,13 @@ def generate_heatmap(df):
                 options={'region': region}
             )
             marker.add_to(m)
+            # Simplified JS with direct region string
             js_code = f"""
             <script>
                 var markers = document.querySelectorAll('.leaflet-marker-icon');
                 if (markers[{marker_index}]) {{
-                    markers[{marker_index}].addEventListener('click', function(e) {{
-                        onMarkerClick({{target: {{options: {{region: '{region}'}}}}});
+                    markers[{marker_index}].addEventListener('click', function() {{
+                        onMarkerClick('{region}');
                     }});
                 }} else {{
                     console.error('Marker at index {marker_index} not found');
