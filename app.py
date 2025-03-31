@@ -400,43 +400,50 @@ def generate_heatmap(df):
     if heat_data:
         HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
-    for region, postcodes in REGION_POSTCODE_LIST.items():
-        coords = [POSTCODE_COORDS.get(pc, None) for pc in postcodes if pc in POSTCODE_COORDS]
-        coords = [c for c in coords if c]
-        if not coords:
-            logging.warning(f"No valid coordinates for region: {region}")
-            continue
-        lat = sum(c[0] for c in coords) / len(coords)
-        lon = sum(c[1] for c in coords) / len(coords)
-        marker = folium.Marker(
-            [lat, lon],
-            tooltip=region,
-            icon=folium.Icon(color="blue", icon="info-sign")
-        )
-        marker.add_to(m)
-        click_script = f"""
-        {marker.get_name()}.on('click', function() {{
-            window.parent.document.getElementById('region').value = '{region}';
-            window.parent.updatePostcodes();
-            window.parent.document.forms[0].submit();
-        }});
-        """
-        m.get_root().script.add_child(folium.Element(click_script))
+    # Temporarily remove markers to test heatmap
+    # for region, postcodes in REGION_POSTCODE_LIST.items():
+    #     coords = [POSTCODE_COORDS.get(pc, None) for pc in postcodes if pc in POSTCODE_COORDS]
+    #     coords = [c for c in coords if c]
+    #     if not coords:
+    #         logging.warning(f"No valid coordinates for region: {region}")
+    #         continue
+    #     lat = sum(c[0] for c in coords) / len(coords)
+    #     lon = sum(c[1] for c in coords) / len(coords)
+    #     marker = folium.Marker(
+    #         [lat, lon],
+    #         tooltip=region,
+    #         icon=folium.Icon(color="blue", icon="info-sign")
+    #     )
+    #     marker.add_to(m)
+    #     click_script = f"""
+    #     {marker.get_name()}.on('click', function() {{
+    #         window.parent.document.getElementById('region').value = '{region}';
+    #         window.parent.updatePostcodes();
+    #         window.parent.document.forms[0].submit();
+    #     }});
+    #     """
+    #     m.get_root().script.add_child(folium.Element(click_script))
     
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
     
-    # Ensure map renders with explicit size
+    # Update Leaflet and heatmap script sources
     m.get_root().html.add_child(folium.Element("""
     <style>
         html, body { width: 100%; height: 100%; margin: 0; padding: 0; }
         #map { width: 100%; height: 100%; }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             if (typeof L !== 'undefined' && document.getElementById('map')) {
                 var mapInstance = map;
-                setTimeout(function() { mapInstance.invalidateSize(); }, 100);
+                setTimeout(function() {
+                    mapInstance.invalidateSize();
+                    var heat = L.heatLayer(""" + str(heat_data) + """, {radius: 15, blur: 20}).addTo(mapInstance);
+                }, 100);
             }
         });
     </script>
