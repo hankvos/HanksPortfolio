@@ -427,6 +427,7 @@ def generate_heatmap(df):
     """
     m.get_root().header.add_child(folium.Element(f'<script>{click_js}</script>'))
     
+    marker_index = 0
     for region, postcodes in REGION_POSTCODE_LIST.items():
         coords = [POSTCODE_COORDS.get(pc, None) for pc in postcodes if pc in POSTCODE_COORDS]
         coords = [c for c in coords if c]
@@ -440,14 +441,14 @@ def generate_heatmap(df):
             )
             marker.add_to(m)
             # Bind the click event directly to the marker
-            marker.add_child(folium.ClickForMarker(popup=None))  # No popup needed
             m.add_child(folium.Element(f"""
             <script>
-                document.querySelectorAll('.leaflet-marker-icon')[{len(m._children)-1}].addEventListener('click', function(e) {{
+                document.querySelectorAll('.leaflet-marker-icon')[{marker_index}].addEventListener('click', function(e) {{
                     onMarkerClick({{target: {{options: {{region: '{region}'}}}}});
                 }});
             </script>
             """))
+            marker_index += 1
     
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
