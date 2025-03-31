@@ -16,7 +16,7 @@ import folium
 from folium.plugins import HeatMap
 import logging
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static')  # Explicitly set static folder
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -384,12 +384,15 @@ def generate_heatmap(df):
     
     m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="CartoDB positron")
     
-    heatmap_data = df.groupby("Postcode").agg({"Price": "median"}).reset_index()
+    heatmap_data = df[df["Postcode"].isin(POSTCODE_COORDS.keys())].groupby("Postcode").agg({"Price": "median"}).reset_index()
     heat_data = []
     for _, row in heatmap_data.iterrows():
         if row["Postcode"] in POSTCODE_COORDS:
             lat, lon = POSTCODE_COORDS[row["Postcode"]]
             heat_data.append([lat, lon, row["Price"] / 1e6])
+    
+    logging.debug(f"Heatmap data points: {len(heat_data)}")
+    logging.debug(f"Sample heat_data: {heat_data[:5] if heat_data else 'Empty'}")
     
     if heat_data:
         HeatMap(heat_data, radius=15, blur=20).add_to(m)
@@ -407,7 +410,6 @@ def generate_heatmap(df):
             tooltip=region,
             icon=folium.Icon(color="blue", icon="info-sign")
         )
-        # Add click event directly to the marker
         marker.add_to(m)
         click_script = f"""
         {marker.get_name()}.on('click', function() {{
@@ -421,9 +423,10 @@ def generate_heatmap(df):
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
     
-    heatmap_path = "static/heatmap.html"
+    heatmap_path = os.path.abspath("static/heatmap.html")
     m.save(heatmap_path)
     logging.info(f"Heatmap saved to {heatmap_path}")
+    logging.info(f"File exists after save: {os.path.exists(heatmap_path)}")
     return heatmap_path
 
 def generate_price_size_scatter(df, selected_region):
@@ -551,11 +554,19 @@ def get_suburbs():
             return jsonify(sorted(region_data["Suburb"].unique()))
     return jsonify([])
 
+@app.route("/list_static")
+def list_static():
+    files = os.listdir("static")
+    return jsonify(files)
+
 def initialize_data():
     global PROPERTY_DF, REGION_SUBURBS
     PROPERTY_DF = load_property_data()
     REGION_SUBURBS = {region: sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(postcodes)]["Suburb"].unique())
                       for region, postcodes in REGION_POSTCODE_LIST.items()}
+    # Log postcode coverage for debugging
+    logging.info(f"Unique postcodes in data: {sorted(PROPERTY_DF['Postcode'].unique())}")
+    logging.info(f"Postcodes in POSTCODE_COORDS: {sorted(POSTCODE_COORDS.keys())}")
 
 initialize_data()
 
