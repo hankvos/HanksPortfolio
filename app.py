@@ -45,12 +45,26 @@ PROPERTY_DF = None
 REGION_SUBURBS = {}
 
 def load_property_data(zip_files=None):
-    """Load property data: 202410*-202412* from 2024, all from 2025."""
+    """Load property data: 202410*-202412* from 2024, all from 2025, excluding records < 2 months before earliest 2024 month."""
     if zip_files is None:
         zip_files = glob.glob("[2][0][2][4-5].zip")
         print(f"ZIP files found: {zip_files}")
     if not zip_files:
         raise ValueError("No ZIP files found for 2024-2025.")
+
+    # Determine the earliest 2024 month from ZIP files
+    earliest_month_2024 = 12  # Default to December if no 2024 files
+    for zip_path in zip_files:
+        if "2024" in zip_path:
+            with zipfile.ZipFile(zip_path, "r") as outer_zip:
+                inner_zips = [f for f in outer_zip.namelist() if f.endswith(".zip")]
+                dat_files = [f for f in outer_zip.namelist() if f.endswith(".DAT")]
+                for name in inner_zips + dat_files:
+                    month = int(name[4:6])
+                    if month in [10, 11, 12] and month < earliest_month_2024:
+                        earliest_month_2024 = month
+    cutoff_month = earliest_month_2024 - 2  # Two months prior
+    print(f"Earliest 2024 month: {earliest_month_2024}, Cutoff month: {cutoff_month}")
 
     column_names = [
         "Record Type", "District Code", "Property ID", "Unit Number",
@@ -86,8 +100,13 @@ def load_property_data(zip_files=None):
                                                     elif len(record) > 19:
                                                         record = record[:19]
                                                     settlement_date = record[14]
-                                                    date_counts[settlement_date] = date_counts.get(settlement_date, 0) + 1
-                                                    yield record
+                                                    if settlement_date:
+                                                        year = int(settlement_date[:4])
+                                                        month = int(settlement_date[4:6])
+                                                        if year == 2024 and month < cutoff_month:
+                                                            continue  # Exclude records before cutoff
+                                                        date_counts[settlement_date] = date_counts.get(settlement_date, 0) + 1
+                                                        yield record
                 elif dat_files:
                     for dat_file in dat_files:
                         if "2024" in zip_path:
@@ -103,19 +122,24 @@ def load_property_data(zip_files=None):
                                     elif len(record) > 19:
                                         record = record[:19]
                                     settlement_date = record[14]
-                                    date_counts[settlement_date] = date_counts.get(settlement_date, 0) + 1
-                                    yield record
+                                    if settlement_date:
+                                        year = int(settlement_date[:4])
+                                        month = int(settlement_date[4:6])
+                                        if year == 2024 and month < cutoff_month:
+                                            continue  # Exclude records before cutoff
+                                        date_counts[settlement_date] = date_counts.get(settlement_date, 0) + 1
+                                        yield record
         print("Unique Settlement Dates and Counts:", date_counts)
 
     df = pd.DataFrame(record_generator(), columns=column_names)
     df = df.drop(columns=[col for col in df.columns if col.startswith("Unused")])
     
     if df.empty:
-        raise ValueError("No B records found in any .DAT files.")
+        raise ValueError("No B records found in any .DAT files after filtering.")
     
     print("Raw Settlement Dates (first 5 records):", df["Settlement Date"].head().tolist())
     
-    # Filter to only 2024 and 2025 Settlement Dates
+    # Filter to only 2024 and 2025 Settlement Dates (redundant with generator filter, but kept for clarity)
     df["Settlement Date Raw"] = pd.to_datetime(df["Settlement Date"], format="%Y%m%d", errors="coerce")
     df = df[df["Settlement Date Raw"].dt.year.isin([2024, 2025])].copy()
     print(f"After filtering to 2024/2025, records remaining: {len(df)}")
@@ -378,8 +402,11 @@ def index():
 
             if selected_region in REGION_POSTCODE_LIST:
                 postcodes = sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(REGION_POSTCODE_LIST[selected_region])]["Postcode"].unique())
-            if selected_postcode:
-                suburbs = sorted(PROPERTY_DF[PROPERTY_DF["Postcode"] == selected_postcode]["Suburb"].unique())
+                # Populate suburbs based on region if no postcode selected, otherwise filter by postcode
+                if not selected_postcode:
+                    suburbs = sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(REGION_POSTCODE_LIST[selected_region])]["Suburb"].unique())
+                else:
+                    suburbs = sorted(PROPERTY_DF[PROPERTY_DF["Postcode"] == selected_postcode]["Suburb"].unique())
 
             region_data = get_region_data(PROPERTY_DF, selected_region, selected_postcode, selected_suburb, selected_property_type, sort_by)
             if not region_data.empty:
@@ -434,12 +461,16 @@ def get_postcodes():
 
 @app.route("/get_suburbs", methods=["GET"])
 def get_suburbs():
-    """Return suburbs for a selected region and postcode."""
+    """Return suburbs for a selected region, optionally filtered by postcode."""
     region = request.args.get("region")
     postcode = request.args.get("postcode")
-    if region in REGION_POSTCODE_LIST and postcode:
-        region_data = PROPERTY_DF[(PROPERTY_DF["Postcode"] == postcode) & (PROPERTY_DF["Postcode"].isin(REGION_POSTCODE_LIST[region]))]
-        return jsonify(sorted(region_data["Suburb"].unique()))
+    if region in REGION_POSTCODE_LIST:
+        if postcode:  # If postcode is provided, filter by it
+            region_data = PROPERTY_DF[(PROPERTY_DF["Postcode"] == postcode) & (PROPERTY_DF["Postcode"].isin(REGION_POSTCODE_LIST[region]))]
+            return jsonify(sorted(region_data["Suburb"].unique()))
+        else:  # If no postcode, return all suburbs in the region
+            region_data = PROPERTY_DF[PROPERTY_DF["Postcode"].isin(REGION_POSTCODE_LIST[region])]
+            return jsonify(sorted(region_data["Suburb"].unique()))
     return jsonify([])
 
 def initialize_data():
