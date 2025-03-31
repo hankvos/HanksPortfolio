@@ -149,6 +149,9 @@
             {% if price_hist_path %}
                 <img src="{{ url_for('static', filename=price_hist_path.split('/')[-1]) }}" alt="Price Histogram">
             {% endif %}
+            {% if region_timeline_path %}
+                <img src="{{ url_for('static', filename=region_timeline_path.split('/')[-1]) }}" alt="Region Price Timeline Chart">
+            {% endif %}
             {% if postcode_timeline_path %}
                 <img src="{{ url_for('static', filename=postcode_timeline_path.split('/')[-1]) }}" alt="Postcode Price Timeline Chart">
             {% endif %}
