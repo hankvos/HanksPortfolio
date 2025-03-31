@@ -207,7 +207,6 @@ def calculate_median_house_by_region(df):
             median_price = region_data["Price"].median()
             if np.isfinite(median_price):
                 median_by_region[region] = {"price": int(median_price)}
-    # Sort by price
     return dict(sorted(median_by_region.items(), key=lambda x: x[1]["price"]))
 
 def calculate_median_house_by_postcode(df, region):
@@ -220,7 +219,6 @@ def calculate_median_house_by_postcode(df, region):
             median_price = postcode_data["Price"].median()
             if np.isfinite(median_price):
                 median_by_postcode[postcode] = {"price": int(median_price)}
-    # Sort by price
     return dict(sorted(median_by_postcode.items(), key=lambda x: x[1]["price"]))
 
 def calculate_median_house_by_suburb(df, postcode):
@@ -233,7 +231,6 @@ def calculate_median_house_by_suburb(df, postcode):
             median_price = suburb_data["Price"].median()
             if np.isfinite(median_price):
                 median_by_suburb[suburb] = {"price": int(median_price)}
-    # Sort by price
     return dict(sorted(median_by_suburb.items(), key=lambda x: x[1]["price"]))
 
 def generate_median_house_price_chart(df, data_dict, chart_type="region", selected_region=None, selected_postcode=None):
@@ -263,7 +260,6 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
     ax.grid(True, axis='y', linestyle='--', alpha=0.3, color='#999')
     ax.set_facecolor('#ffffff')
 
-    # Add value labels on bars
     for bar in bars:
         height = bar.get_height()
         ax.text(bar.get_x() + bar.get_width()/2., height + max(prices)*0.02,
@@ -275,8 +271,8 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
     plt.close()
     return chart_path
 
-def generate_price_timeline_chart(region_data, selected_suburb):
-    """Generate a timeline chart for median prices by month in a suburb."""
+def generate_price_timeline_chart(region_data, selected_area, area_type="Suburb"):
+    """Generate a timeline chart for median prices by month in a suburb or postcode."""
     os.makedirs('static', exist_ok=True)
 
     # Group by month and calculate median price
@@ -290,7 +286,7 @@ def generate_price_timeline_chart(region_data, selected_suburb):
     fig, ax = plt.subplots(figsize=(10, 5), facecolor='#f5f5f5')
     ax.plot(monthly_prices["Month"], monthly_prices["Price"], color='#4682B4', linewidth=2.5, marker='o', markersize=8)
 
-    ax.set_title(f"Median House Price Trend - {selected_suburb} (Oct 2024 - Mar 2025)", fontsize=14, weight='bold', pad=20, color='#333')
+    ax.set_title(f"Median House Price Trend - {area_type} {selected_area} (Oct 2024 - Mar 2025)", fontsize=14, weight='bold', pad=20, color='#333')
     ax.set_xlabel("Month", fontsize=12, weight='bold', color='#555')
     ax.set_ylabel("Median Price ($)", fontsize=12, weight='bold', color='#555')
     ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter("%b %Y"))
@@ -298,18 +294,17 @@ def generate_price_timeline_chart(region_data, selected_suburb):
     ax.grid(True, linestyle='--', alpha=0.3, color='#999')
     ax.set_facecolor('#ffffff')
 
-    # Add value labels on points
     for i, (x, y) in enumerate(zip(monthly_prices["Month"], monthly_prices["Price"])):
         ax.text(x, y + max(monthly_prices["Price"])*0.02, f"${int(y):,}", ha='center', va='bottom', fontsize=10, color='#333')
 
     plt.tight_layout()
-    timeline_path = 'static/price_timeline_chart.png'
+    timeline_path = f'static/price_timeline_{area_type.lower()}_chart.png'
     plt.savefig(timeline_path, dpi=150, bbox_inches='tight')
     plt.close()
     return timeline_path
 
 def generate_plots(region_data, selected_region, selected_postcode, selected_suburb):
-    """Generate histogram for price distribution and optional timeline."""
+    """Generate histogram and optional timeline for postcode or suburb."""
     os.makedirs('static', exist_ok=True)
 
     prices = region_data["Price"].dropna() / 1e6  # Convert to millions
@@ -332,12 +327,15 @@ def generate_plots(region_data, selected_region, selected_postcode, selected_sub
     plt.savefig(price_hist_path, dpi=150, bbox_inches='tight')
     plt.close()
 
-    # Generate timeline chart if suburb is selected
-    timeline_path = None
+    # Generate timeline chart if postcode or suburb is selected
+    postcode_timeline_path = None
+    suburb_timeline_path = None
     if selected_suburb:
-        timeline_path = generate_price_timeline_chart(region_data, selected_suburb)
+        suburb_timeline_path = generate_price_timeline_chart(region_data, selected_suburb, area_type="Suburb")
+    elif selected_postcode:
+        postcode_timeline_path = generate_price_timeline_chart(region_data, selected_postcode, area_type="Postcode")
 
-    return price_hist_path, timeline_path
+    return price_hist_path, postcode_timeline_path, suburb_timeline_path
 
 def calculate_stats(region_data):
     """Calculate mean, median, and standard deviation of prices."""
@@ -359,7 +357,7 @@ def index():
         avg_price = 0
         sort_by = "Address"
         postcodes = suburbs = []
-        price_hist_path = timeline_path = None
+        price_hist_path = postcode_timeline_path = suburb_timeline_path = None
         stats = {"mean": 0, "median": 0, "std": 0}
         data_source = "Data provided by NSW Valuer General Property Sales Information, last updated March 24, 2025"
 
@@ -382,7 +380,7 @@ def index():
             if not region_data.empty:
                 properties = region_data[["Address", "Price", "Size", "Settlement Date", "Map Link"]].to_dict("records")
                 avg_price = calculate_avg_price(region_data)
-                price_hist_path, timeline_path = generate_plots(region_data, selected_region, selected_postcode, selected_suburb)
+                price_hist_path, postcode_timeline_path, suburb_timeline_path = generate_plots(region_data, selected_region, selected_postcode, selected_suburb)
                 stats = calculate_stats(region_data)
 
                 if selected_region and not selected_postcode:
@@ -405,7 +403,8 @@ def index():
             avg_price=avg_price,
             sort_by=sort_by,
             price_hist_path=price_hist_path,
-            timeline_path=timeline_path,
+            postcode_timeline_path=postcode_timeline_path,
+            suburb_timeline_path=suburb_timeline_path,
             stats=stats,
             median_chart_path=median_chart_path,
             price_size_scatter_path=None,

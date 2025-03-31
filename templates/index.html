@@ -149,8 +149,11 @@
             {% if price_hist_path %}
                 <img src="{{ url_for('static', filename=price_hist_path.split('/')[-1]) }}" alt="Price Histogram">
             {% endif %}
-            {% if timeline_path %}
-                <img src="{{ url_for('static', filename=timeline_path.split('/')[-1]) }}" alt="Price Timeline Chart">
+            {% if postcode_timeline_path %}
+                <img src="{{ url_for('static', filename=postcode_timeline_path.split('/')[-1]) }}" alt="Postcode Price Timeline Chart">
+            {% endif %}
+            {% if suburb_timeline_path %}
+                <img src="{{ url_for('static', filename=suburb_timeline_path.split('/')[-1]) }}" alt="Suburb Price Timeline Chart">
             {% endif %}
             {% if properties %}
                 <p>Average Price: ${{ avg_price | intcomma }}</p>
