@@ -4,6 +4,15 @@ body {
     background: #f5f5f5;
 }
 
+.data-source {
+    font-size: 0.9em;
+    color: #666;
+    text-align: center;
+    font-style: italic;
+    margin: 0 auto 20px auto;
+    max-width: 1200px;
+}
+
 .container {
     max-width: 1200px;
     margin: auto;
@@ -28,10 +37,7 @@ body {
 h1 {
     color: #333;
     text-align: center;
-}
-
-h2 {
-    color: #333;
+    margin-bottom: 20px;
 }
 
 label {
@@ -86,14 +92,6 @@ iframe {
     height: 300px;
     border: none;
     margin-bottom: 20px;
-}
-
-.data-source {
-    font-size: 0.9em;
-    color: #666;
-    text-align: center;
-    font-style: italic;
-    margin-bottom: 10px;
 }
 
 .stats {

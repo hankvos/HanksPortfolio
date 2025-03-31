@@ -35,10 +35,10 @@
     </script>
 </head>
 <body>
+    <div class="data-source">{{ data_source }}</div>
     <div class="container">
-        <div class="data-source">{{ data_source }}</div>
-        <h1>Northern NSW Property Sales Analyser</h1>
         <div class="left-column">
+            <h1>Northern NSW Property Sales Analyser</h1>
             {% if heatmap_path %}
                 <iframe src="{{ url_for('static', filename=heatmap_path.split('/')[-1]) }}" frameborder="0"></iframe>
             {% endif %}

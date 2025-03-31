@@ -408,15 +408,14 @@ def generate_heatmap(df):
             icon=folium.Icon(color="blue", icon="info-sign")
         )
         marker.add_to(m)
-        # Add custom JavaScript for direct click
-        marker_js = f"""
-        L.marker([{lat}, {lon}]).on('click', function() {{
+        # Add click event directly to the marker
+        marker.add_child(folium.ClickForMarker(
+            f"""
             parent.document.getElementById('region').value = '{region}';
             parent.updatePostcodes();
             parent.document.forms[0].submit();
-        }});
-        """
-        m.get_root().script.add_child(folium.Element(marker_js))
+            """
+        ))
     
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
