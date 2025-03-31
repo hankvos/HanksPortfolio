@@ -401,7 +401,7 @@ def generate_heatmap(df):
         HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
     # Generate marker script
-    marker_scripts = ""
+    marker_scripts = "console.log('Adding markers...');\n"
     for region, postcodes in REGION_POSTCODE_LIST.items():
         coords = [POSTCODE_COORDS.get(pc, None) for pc in postcodes if pc in POSTCODE_COORDS]
         coords = [c for c in coords if c]
@@ -411,10 +411,12 @@ def generate_heatmap(df):
         lat = sum(c[0] for c in coords) / len(coords)
         lon = sum(c[1] for c in coords) / len(coords)
         marker_scripts += f"""
-        L.marker([{lat}, {lon}], {{icon: L.AwesomeMarkers.icon({{icon: 'info-sign', prefix: 'fa', markerColor: 'blue'}})}})
+        console.log('Adding marker for {region} at [{lat}, {lon}]');
+        L.marker([{lat}, {lon}])
             .addTo(mapInstance)
-            .bindTooltip('{region}')
+            .bindTooltip('{region}', {{permanent: false, direction: 'top'}})
             .on('click', function() {{
+                console.log('Marker clicked: {region}');
                 try {{
                     window.parent.document.getElementById('region').value = '{region}';
                     window.parent.updatePostcodes();
@@ -436,16 +438,18 @@ def generate_heatmap(df):
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.css"/>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, checking Leaflet and map');
             if (typeof L !== 'undefined' && document.getElementById('map')) {
+                console.log('Leaflet and map div found');
                 var mapInstance = map;
                 setTimeout(function() {
+                    console.log('Invalidating map size and adding layers');
                     mapInstance.invalidateSize();
                     var heat = L.heatLayer(""" + str(heat_data) + """, {radius: 15, blur: 20}).addTo(mapInstance);
                     """ + marker_scripts + """
+                    console.log('Markers added');
                 }, 100);
             } else {
                 console.log('Leaflet or map div not found');
