@@ -416,22 +416,38 @@ def generate_heatmap(df):
     
     HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
+    # Add custom JavaScript for direct marker clicks
+    click_js = """
+    function onMarkerClick(e) {
+        var region = e.target.options.region;
+        parent.document.getElementById('region').value = region;
+        parent.updatePostcodes();
+        parent.document.forms[0].submit();
+    }
+    """
+    m.get_root().header.add_child(folium.Element(f'<script>{click_js}</script>'))
+    
     for region, postcodes in REGION_POSTCODE_LIST.items():
         coords = [POSTCODE_COORDS.get(pc, None) for pc in postcodes if pc in POSTCODE_COORDS]
         coords = [c for c in coords if c]
         if coords:
             lat = sum(c[0] for c in coords) / len(coords)
             lon = sum(c[1] for c in coords) / len(coords)
-            popup_html = f"""
-            <a href="#" onclick="parent.document.getElementById('region').value='{region}';
-                              parent.updatePostcodes();
-                              parent.document.forms[0].submit();">{region}</a>
-            """
-            folium.Marker(
+            marker = folium.Marker(
                 [lat, lon],
-                popup=folium.Popup(popup_html, max_width=300),
-                tooltip=region
-            ).add_to(m)
+                tooltip=region,
+                options={'region': region}  # Custom option to store region
+            )
+            marker.add_to(m)
+            # Bind the click event directly to the marker
+            marker.add_child(folium.ClickForMarker(popup=None))  # No popup needed
+            m.add_child(folium.Element(f"""
+            <script>
+                document.querySelectorAll('.leaflet-marker-icon')[{len(m._children)-1}].addEventListener('click', function(e) {{
+                    onMarkerClick({{target: {{options: {{region: '{region}'}}}}});
+                }});
+            </script>
+            """))
     
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
