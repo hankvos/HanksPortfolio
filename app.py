@@ -406,10 +406,12 @@ def generate_heatmap(df):
             lat = sum(c[0] for c in coords) / len(coords)
             lon = sum(c[1] for c in coords) / len(coords)
             marker_scripts += f"""
+            console.log('Adding marker for {region} at [{lat}, {lon}]');
             L.marker([{lat}, {lon}])
-                .addTo(map)
+                .addTo(mapInstance)
                 .bindTooltip('{region}', {{direction: 'top'}})
                 .on('click', function() {{
+                    console.log('Marker clicked: {region}');
                     window.parent.document.getElementById('region').value = '{region}';
                     window.parent.updatePostcodes();
                     window.parent.document.forms[0].submit();
@@ -421,7 +423,7 @@ def generate_heatmap(df):
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
     
-    # Inject CSS and JavaScript
+    # Inject CSS and JavaScript with explicit map ID
     m.get_root().html.add_child(folium.Element("""
     <style>
         html, body { width: 100%; height: 100%; margin: 0; padding: 0; }
@@ -433,15 +435,18 @@ def generate_heatmap(df):
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             console.log('DOM loaded, initializing map');
-            var map = document.getElementById('map') ? map : null;
-            if (typeof L !== 'undefined' && map) {
+            var mapInstance = window.map_{m.get_name()};
+            if (typeof L !== 'undefined' && mapInstance) {
+                console.log('Leaflet and map instance found');
                 setTimeout(function() {
-                    console.log('Adding heatmap and markers');
-                    map.invalidateSize();
+                    console.log('Adding heatmap and markers after delay');
+                    mapInstance.invalidateSize();
+                    var heat = L.heatLayer(""" + str(heat_data) + """, {radius: 15, blur: 20}).addTo(mapInstance);
                     """ + marker_scripts + """
-                }, 500);
+                    console.log('Markers added successfully');
+                }, 1000); // Increased delay to 1000ms
             } else {
-                console.error('Leaflet or map element not found');
+                console.error('Leaflet or map instance not found');
             }
         });
     </script>
