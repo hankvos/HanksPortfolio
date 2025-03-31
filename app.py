@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
 import pandas as pd
 import zipfile
 from io import BytesIO
@@ -16,7 +16,7 @@ import folium
 from folium.plugins import HeatMap
 import logging
 
-app = Flask(__name__, static_folder='static')  # Explicitly set static folder
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -64,7 +64,7 @@ def load_property_data(zip_files=None):
         logging.info(f"ZIP files found: {zip_files}")
     if not zip_files:
         raise ValueError("No ZIP files found for 2024-2025.")
-
+    
     earliest_month_2024 = 12
     for zip_path in zip_files:
         if "2024" in zip_path:
@@ -372,6 +372,12 @@ def calculate_stats(region_data):
 def generate_heatmap(df):
     os.makedirs('static', exist_ok=True)
     
+    # Ensure heatmap.html is regenerated fresh
+    heatmap_path = os.path.join(app.static_folder, "heatmap.html")
+    if os.path.exists(heatmap_path):
+        os.remove(heatmap_path)
+        logging.info(f"Removed existing {heatmap_path} to force regeneration")
+    
     all_coords = [coord for pc in POSTCODE_COORDS for coord in [POSTCODE_COORDS[pc]]]
     if not all_coords:
         logging.warning("No coordinates found in POSTCODE_COORDS.")
@@ -423,11 +429,15 @@ def generate_heatmap(df):
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
     
-    heatmap_path = os.path.abspath("static/heatmap.html")
     m.save(heatmap_path)
     logging.info(f"Heatmap saved to {heatmap_path}")
     logging.info(f"File exists after save: {os.path.exists(heatmap_path)}")
-    return heatmap_path
+    with open(heatmap_path, 'r') as f:
+        content = f.read()
+        logging.info(f"Heatmap content length: {len(content)} bytes")
+        logging.debug(f"Heatmap content sample: {content[:200]}")
+    
+    return "/static/heatmap.html"
 
 def generate_price_size_scatter(df, selected_region):
     os.makedirs('static', exist_ok=True)
@@ -468,9 +478,12 @@ def index():
         price_size_scatter_path = None
         stats = {"mean": 0, "median": 0, "std": 0}
         
+        # Generate heatmap on every request
+        heatmap_path = generate_heatmap(PROPERTY_DF)
+        logging.info(f"Passing heatmap_path to template: {heatmap_path}")
+        
         median_by_region = calculate_median_house_by_region(PROPERTY_DF)
         median_chart_path = generate_median_house_price_chart(PROPERTY_DF, median_by_region, chart_type="region")
-        heatmap_path = generate_heatmap(PROPERTY_DF)
 
         if request.method == "POST" and request.form.get("region"):
             selected_region = request.form.get("region")
@@ -554,17 +567,15 @@ def get_suburbs():
             return jsonify(sorted(region_data["Suburb"].unique()))
     return jsonify([])
 
-@app.route("/list_static")
-def list_static():
-    files = os.listdir("static")
-    return jsonify(files)
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    return send_from_directory(app.static_folder, filename)
 
 def initialize_data():
     global PROPERTY_DF, REGION_SUBURBS
     PROPERTY_DF = load_property_data()
     REGION_SUBURBS = {region: sorted(PROPERTY_DF[PROPERTY_DF["Postcode"].isin(postcodes)]["Suburb"].unique())
                       for region, postcodes in REGION_POSTCODE_LIST.items()}
-    # Log postcode coverage for debugging
     logging.info(f"Unique postcodes in data: {sorted(PROPERTY_DF['Postcode'].unique())}")
     logging.info(f"Postcodes in POSTCODE_COORDS: {sorted(POSTCODE_COORDS.keys())}")
 
