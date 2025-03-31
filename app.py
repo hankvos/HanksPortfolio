@@ -31,13 +31,36 @@ REGION_POSTCODES = {
 }
 
 POSTCODE_COORDS = {
-    "2250": [-33.28, 151.41],  # Central Coast (Gosford)
+    # Central Coast
+    "2250": [-33.28, 151.41],  # Gosford
+    "2251": [-33.35, 151.46],  # Woy Woy
+    "2259": [-33.08, 151.36],  # Wyong
+    "2261": [-33.27, 151.53],  # The Entrance
+    # Coffs Harbour - Grafton
     "2450": [-30.30, 153.11],  # Coffs Harbour
     "2460": [-29.69, 152.93],  # Grafton
-    "2480": [-28.81, 153.28],  # Lismore (Richmond-Tweed)
-    "2320": [-32.72, 151.55],  # Maitland (Hunter Valley)
+    "2456": [-30.35, 153.08],  # Sawtell
+    "2463": [-29.78, 152.97],  # Maclean
+    # Hunter Valley excl Newcastle
+    "2320": [-32.72, 151.55],  # Maitland
+    "2321": [-32.67, 151.52],  # East Maitland
+    "2330": [-32.58, 151.17],  # Singleton
+    "2335": [-32.33, 151.27],  # Muswellbrook
+    # Mid North Coast
+    "2430": [-31.91, 152.46],  # Taree
+    "2440": [-31.65, 152.80],  # Kempsey
+    "2444": [-31.43, 152.91],  # Port Macquarie
+    "2428": [-31.96, 152.41],  # Forster
+    # Newcastle and Lake Macquarie
     "2290": [-32.93, 151.77],  # Newcastle
-    "2430": [-31.91, 152.46]   # Taree (Mid North Coast)
+    "2280": [-33.00, 151.65],  # Belmont
+    "2285": [-32.94, 151.66],  # Cardiff
+    "2300": [-32.92, 151.78],  # Newcastle East
+    # Richmond-Tweed
+    "2480": [-28.81, 153.28],  # Lismore
+    "2478": [-28.62, 153.58],  # Ballina
+    "2481": [-28.56, 153.40],  # Byron Bay
+    "2483": [-28.36, 153.56]   # Brunswick Heads
 }
 
 def expand_postcode_ranges(ranges):
@@ -145,8 +168,11 @@ def load_property_data(zip_files=None):
     if df.empty:
         raise ValueError("No B records found in any .DAT files after filtering.")
     
+    print("Raw Settlement Dates (first 5 records):", df["Settlement Date"].head().tolist())
+    
     df["Settlement Date Raw"] = pd.to_datetime(df["Settlement Date"], format="%Y%m%d", errors="coerce")
     df = df[df["Settlement Date Raw"].dt.year.isin([2024, 2025])].copy()
+    print(f"After filtering to 2024/2025, records remaining: {len(df)}")
     
     def determine_property_type(row):
         base_type = row["Property Type"].strip().upper()
@@ -170,7 +196,12 @@ def load_property_data(zip_files=None):
     df["Sale Price"] = pd.to_numeric(df["Sale Price"], errors="coerce")
     df_filtered = df[df["Sale Price"].notna() & df["Sale Price"].gt(0)].copy()
     
+    if df_filtered.empty:
+        raise ValueError("No valid Sale Price data after filtering.")
+    
+    print("Before conversion (first 5 records):", df_filtered["Settlement Date"].head().tolist())
     df_filtered["Settlement Date"] = df_filtered["Settlement Date Raw"].dt.strftime("%d/%m/%Y")
+    print("After conversion (first 5 records):", df_filtered["Settlement Date"].head().tolist())
     
     for col in ["Unit Number", "House Number", "Street Name", "Suburb", "Postcode"]:
         df_filtered[col] = df_filtered[col].astype(str).replace("", "")
@@ -365,7 +396,6 @@ def calculate_stats(region_data):
 def generate_heatmap(df):
     os.makedirs('static', exist_ok=True)
     
-    # Calculate bounds to fit all regions
     all_coords = [coord for pc in POSTCODE_COORDS for coord in [POSTCODE_COORDS[pc]]]
     if all_coords:
         min_lat, max_lat = min(c[0] for c in all_coords), max(c[0] for c in all_coords)
@@ -373,11 +403,10 @@ def generate_heatmap(df):
         center_lat = (min_lat + max_lat) / 2
         center_lon = (min_lon + max_lon) / 2
     else:
-        center_lat, center_lon = -30.0, 153.0  # Default Northern NSW
+        center_lat, center_lon = -30.0, 153.0
     
     m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="CartoDB positron")
     
-    # Aggregate median price by postcode for heat map
     heatmap_data = df.groupby("Postcode").agg({"Price": "median"}).reset_index()
     heat_data = []
     for _, row in heatmap_data.iterrows():
@@ -387,10 +416,9 @@ def generate_heatmap(df):
     
     HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
-    # Add markers for all regions
     for region, postcodes in REGION_POSTCODE_LIST.items():
         coords = [POSTCODE_COORDS.get(pc, None) for pc in postcodes if pc in POSTCODE_COORDS]
-        coords = [c for c in coords if c]  # Filter out None
+        coords = [c for c in coords if c]
         if coords:
             lat = sum(c[0] for c in coords) / len(coords)
             lon = sum(c[1] for c in coords) / len(coords)
@@ -405,7 +433,6 @@ def generate_heatmap(df):
                 tooltip=region
             ).add_to(m)
     
-    # Fit map to bounds if coordinates exist
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
     
