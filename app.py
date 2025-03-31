@@ -397,33 +397,28 @@ def generate_heatmap(df):
     if heat_data:
         HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
-    # Add markers with click events
-    marker_scripts = ""
+    # Add markers directly with folium (temporary test)
+    markers_added = 0
     for region, postcodes in REGION_POSTCODE_LIST.items():
         coords = [POSTCODE_COORDS.get(pc) for pc in postcodes if pc in POSTCODE_COORDS]
         coords = [c for c in coords if c]
         if coords:
             lat = sum(c[0] for c in coords) / len(coords)
             lon = sum(c[1] for c in coords) / len(coords)
-            marker_scripts += f"""
-            console.log('Adding marker for {region} at [{lat}, {lon}]');
-            L.marker([{lat}, {lon}])
-                .addTo(mapInstance)
-                .bindTooltip('{region}', {{direction: 'top'}})
-                .on('click', function() {{
-                    console.log('Marker clicked: {region}');
-                    window.parent.document.getElementById('region').value = '{region}';
-                    window.parent.updatePostcodes();
-                    window.parent.document.forms[0].submit();
-                }});
-            """
+            folium.Marker(
+                [lat, lon],
+                tooltip=region,
+                popup=region  # Simple popup for testing
+            ).add_to(m)
+            markers_added += 1
         else:
             logging.warning(f"No valid coordinates for region: {region}")
+    logging.info(f"Added {markers_added} markers to heatmap")
     
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
     
-    # Inject CSS and JavaScript with explicit map ID
+    # Minimal JavaScript for map initialization check
     m.get_root().html.add_child(folium.Element("""
     <style>
         html, body { width: 100%; height: 100%; margin: 0; padding: 0; }
@@ -434,19 +429,13 @@ def generate_heatmap(df):
     <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOM loaded, initializing map');
+            console.log('DOM loaded, checking map');
             var mapInstance = window.map_{m.get_name()};
-            if (typeof L !== 'undefined' && mapInstance) {
-                console.log('Leaflet and map instance found');
-                setTimeout(function() {
-                    console.log('Adding heatmap and markers after delay');
-                    mapInstance.invalidateSize();
-                    var heat = L.heatLayer(""" + str(heat_data) + """, {radius: 15, blur: 20}).addTo(mapInstance);
-                    """ + marker_scripts + """
-                    console.log('Markers added successfully');
-                }, 1000); // Increased delay to 1000ms
+            if (mapInstance) {
+                console.log('Map instance found');
+                mapInstance.invalidateSize();
             } else {
-                console.error('Leaflet or map instance not found');
+                console.error('Map instance not found');
             }
         });
     </script>
