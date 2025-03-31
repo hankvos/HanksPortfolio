@@ -252,7 +252,7 @@ def generate_median_house_price_chart(df, data_dict, chart_type="region", select
     bars = ax.bar(labels, prices, color='#4682B4', edgecolor='black', width=0.7, alpha=0.9)
     
     ax.set_title(f"{title_prefix}{date_range}", fontsize=14, weight='bold', pad=20, color='#333')
-    ax.set_xlabel("Suburb" if chart_type == "suburb" else "Postcode" if chart_type == "postcode" else "Region", fontsize=12, weight='bold', color='#555')
+    ax.set_xlabel("" if chart_type in ["region", "suburb"] else "Postcode", fontsize=12, weight='bold', color='#555')
     ax.set_ylabel("Median Price ($)", fontsize=12, weight='bold', color='#555')
     ax.set_xticks(range(len(labels)))
     ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=10, color='#333')
