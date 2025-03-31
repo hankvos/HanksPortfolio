@@ -83,7 +83,7 @@
             margin-top: 20px;
         }
         .footer {
-            padding: 0 20px 20px 20px;  /* Matches container padding */
+            padding: 0 20px 20px 20px;
             font-size: 0.9em;
             color: #666;
             text-align: left;
@@ -148,6 +148,9 @@
             {% endif %}
             {% if price_hist_path %}
                 <img src="{{ url_for('static', filename=price_hist_path.split('/')[-1]) }}" alt="Price Histogram">
+            {% endif %}
+            {% if timeline_path %}
+                <img src="{{ url_for('static', filename=timeline_path.split('/')[-1]) }}" alt="Price Timeline Chart">
             {% endif %}
             {% if properties %}
                 <p>Average Price: ${{ avg_price | intcomma }}</p>
