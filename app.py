@@ -14,8 +14,12 @@ import os
 import urllib.parse
 import folium
 from folium.plugins import HeatMap
+import logging
 
 app = Flask(__name__)
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def intcomma(value):
     return "{:,}".format(int(value))
@@ -31,36 +35,12 @@ REGION_POSTCODES = {
 }
 
 POSTCODE_COORDS = {
-    # Central Coast
-    "2250": [-33.28, 151.41],  # Gosford
-    "2251": [-33.35, 151.46],  # Woy Woy
-    "2259": [-33.08, 151.36],  # Wyong
-    "2261": [-33.27, 151.53],  # The Entrance
-    # Coffs Harbour - Grafton
-    "2450": [-30.30, 153.11],  # Coffs Harbour
-    "2460": [-29.69, 152.93],  # Grafton
-    "2456": [-30.35, 153.08],  # Sawtell
-    "2463": [-29.78, 152.97],  # Maclean
-    # Hunter Valley excl Newcastle
-    "2320": [-32.72, 151.55],  # Maitland
-    "2321": [-32.67, 151.52],  # East Maitland
-    "2330": [-32.58, 151.17],  # Singleton
-    "2335": [-32.33, 151.27],  # Muswellbrook
-    # Mid North Coast
-    "2430": [-31.91, 152.46],  # Taree
-    "2440": [-31.65, 152.80],  # Kempsey
-    "2444": [-31.43, 152.91],  # Port Macquarie
-    "2428": [-31.96, 152.41],  # Forster
-    # Newcastle and Lake Macquarie
-    "2290": [-32.93, 151.77],  # Newcastle
-    "2280": [-33.00, 151.65],  # Belmont
-    "2285": [-32.94, 151.66],  # Cardiff
-    "2300": [-32.92, 151.78],  # Newcastle East
-    # Richmond-Tweed
-    "2480": [-28.81, 153.28],  # Lismore
-    "2478": [-28.62, 153.58],  # Ballina
-    "2481": [-28.56, 153.40],  # Byron Bay
-    "2483": [-28.36, 153.56]   # Brunswick Heads
+    "2250": [-33.28, 151.41], "2251": [-33.35, 151.46], "2259": [-33.08, 151.36], "2261": [-33.27, 151.53],
+    "2450": [-30.30, 153.11], "2460": [-29.69, 152.93], "2456": [-30.35, 153.08], "2463": [-29.78, 152.97],
+    "2320": [-32.72, 151.55], "2321": [-32.67, 151.52], "2330": [-32.58, 151.17], "2335": [-32.33, 151.27],
+    "2430": [-31.91, 152.46], "2440": [-31.65, 152.80], "2444": [-31.43, 152.91], "2428": [-31.96, 152.41],
+    "2290": [-32.93, 151.77], "2280": [-33.00, 151.65], "2285": [-32.94, 151.66], "2300": [-32.92, 151.78],
+    "2480": [-28.81, 153.28], "2478": [-28.62, 153.58], "2481": [-28.56, 153.40], "2483": [-28.36, 153.56]
 }
 
 def expand_postcode_ranges(ranges):
@@ -80,7 +60,7 @@ REGION_SUBURBS = {}
 def load_property_data(zip_files=None):
     if zip_files is None:
         zip_files = glob.glob("[2][0][2][4-5].zip")
-        print(f"ZIP files found: {zip_files}")
+        logging.info(f"ZIP files found: {zip_files}")
     if not zip_files:
         raise ValueError("No ZIP files found for 2024-2025.")
 
@@ -95,7 +75,7 @@ def load_property_data(zip_files=None):
                     if month in [10, 11, 12] and month < earliest_month_2024:
                         earliest_month_2024 = month
     cutoff_month = earliest_month_2024 - 1
-    print(f"Earliest 2024 month: {earliest_month_2024}, Cutoff month: {cutoff_month}")
+    logging.info(f"Earliest 2024 month: {earliest_month_2024}, Cutoff month: {cutoff_month}")
 
     column_names = [
         "Record Type", "District Code", "Property ID", "Unit Number",
@@ -111,13 +91,10 @@ def load_property_data(zip_files=None):
             with zipfile.ZipFile(zip_path, "r") as outer_zip:
                 inner_zips = [f for f in outer_zip.namelist() if f.endswith(".zip")]
                 dat_files = [f for f in outer_zip.namelist() if f.endswith(".DAT")]
-                
                 if inner_zips:
                     for inner_zip_name in inner_zips:
-                        if "2024" in zip_path:
-                            month = inner_zip_name[4:6]
-                            if not (month in ["10", "11", "12"]):
-                                continue
+                        if "2024" in zip_path and inner_zip_name[4:6] not in ["10", "11", "12"]:
+                            continue
                         with outer_zip.open(inner_zip_name) as inner_zip_file:
                             with zipfile.ZipFile(BytesIO(inner_zip_file.read())) as inner_zip:
                                 for dat_file in inner_zip.namelist():
@@ -140,10 +117,8 @@ def load_property_data(zip_files=None):
                                                         yield record
                 elif dat_files:
                     for dat_file in dat_files:
-                        if "2024" in zip_path:
-                            month = dat_file[4:6]
-                            if not (month in ["10", "11", "12"]):
-                                continue
+                        if "2024" in zip_path and dat_file[4:6] not in ["10", "11", "12"]:
+                            continue
                         with outer_zip.open(dat_file) as f:
                             for line in f.read().decode("utf-8").splitlines():
                                 if line.startswith("B;"):
@@ -160,7 +135,7 @@ def load_property_data(zip_files=None):
                                             continue
                                         date_counts[settlement_date] = date_counts.get(settlement_date, 0) + 1
                                         yield record
-        print("Unique Settlement Dates and Counts:", date_counts)
+        logging.info(f"Unique Settlement Dates and Counts: {date_counts}")
 
     df = pd.DataFrame(record_generator(), columns=column_names)
     df = df.drop(columns=[col for col in df.columns if col.startswith("Unused")])
@@ -168,11 +143,11 @@ def load_property_data(zip_files=None):
     if df.empty:
         raise ValueError("No B records found in any .DAT files after filtering.")
     
-    print("Raw Settlement Dates (first 5 records):", df["Settlement Date"].head().tolist())
+    logging.debug(f"Raw Settlement Dates (first 5): {df['Settlement Date'].head().tolist()}")
     
     df["Settlement Date Raw"] = pd.to_datetime(df["Settlement Date"], format="%Y%m%d", errors="coerce")
     df = df[df["Settlement Date Raw"].dt.year.isin([2024, 2025])].copy()
-    print(f"After filtering to 2024/2025, records remaining: {len(df)}")
+    logging.info(f"After filtering to 2024/2025, records remaining: {len(df)}")
     
     def determine_property_type(row):
         base_type = row["Property Type"].strip().upper()
@@ -199,9 +174,9 @@ def load_property_data(zip_files=None):
     if df_filtered.empty:
         raise ValueError("No valid Sale Price data after filtering.")
     
-    print("Before conversion (first 5 records):", df_filtered["Settlement Date"].head().tolist())
+    logging.debug(f"Before conversion (first 5): {df_filtered['Settlement Date'].head().tolist()}")
     df_filtered["Settlement Date"] = df_filtered["Settlement Date Raw"].dt.strftime("%d/%m/%Y")
-    print("After conversion (first 5 records):", df_filtered["Settlement Date"].head().tolist())
+    logging.debug(f"After conversion (first 5): {df_filtered['Settlement Date'].head().tolist()}")
     
     for col in ["Unit Number", "House Number", "Street Name", "Suburb", "Postcode"]:
         df_filtered[col] = df_filtered[col].astype(str).replace("", "")
@@ -218,7 +193,7 @@ def load_property_data(zip_files=None):
     df_filtered["Price"] = df_filtered["Price"].astype(float).round(0)
     df_filtered["Size"] = df_filtered["Area"].replace("", "N/A").fillna("N/A").astype(str) + " sqm"
     
-    print(f"Loaded {len(df_filtered)} records into DataFrame.")
+    logging.info(f"Loaded {len(df_filtered)} records into DataFrame.")
     return df_filtered
 
 def get_region_data(df, region=None, postcode=None, suburb=None, property_type=None, sort_by="Address"):
@@ -397,13 +372,15 @@ def generate_heatmap(df):
     os.makedirs('static', exist_ok=True)
     
     all_coords = [coord for pc in POSTCODE_COORDS for coord in [POSTCODE_COORDS[pc]]]
-    if all_coords:
+    if not all_coords:
+        logging.warning("No coordinates found in POSTCODE_COORDS.")
+        center_lat, center_lon = -30.0, 153.0
+    else:
         min_lat, max_lat = min(c[0] for c in all_coords), max(c[0] for c in all_coords)
         min_lon, max_lon = min(c[1] for c in all_coords), max(c[1] for c in all_coords)
         center_lat = (min_lat + max_lat) / 2
         center_lon = (min_lon + max_lon) / 2
-    else:
-        center_lat, center_lon = -30.0, 153.0
+        logging.debug(f"Map bounds: [{min_lat}, {min_lon}] to [{max_lat}, {max_lon}]")
     
     m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="CartoDB positron")
     
@@ -413,48 +390,81 @@ def generate_heatmap(df):
         if row["Postcode"] in POSTCODE_COORDS:
             lat, lon = POSTCODE_COORDS[row["Postcode"]]
             heat_data.append([lat, lon, row["Price"] / 1e6])
+    logging.info(f"Heatmap data points: {len(heat_data)}")
     
-    HeatMap(heat_data, radius=15, blur=20).add_to(m)
+    if heat_data:
+        HeatMap(heat_data, radius=15, blur=20).add_to(m)
+    else:
+        logging.warning("No valid heatmap data points to add.")
     
     # Add custom JavaScript for direct marker clicks
     click_js = """
     function onMarkerClick(e) {
         var region = e.target.options.region;
-        parent.document.getElementById('region').value = region;
-        parent.updatePostcodes();
-        parent.document.forms[0].submit();
+        if (region) {
+            parent.document.getElementById('region').value = region;
+            parent.updatePostcodes();
+            parent.document.forms[0].submit();
+        } else {
+            console.error('Region not found in marker options');
+        }
     }
     """
-    m.get_root().header.add_child(folium.Element(f'<script>{click_js}</script>'))
+    try:
+        m.get_root().header.add_child(folium.Element(f'<script>{click_js}</script>'))
+        logging.debug("Click JavaScript added to map header.")
+    except Exception as e:
+        logging.error(f"Failed to add click JavaScript: {e}")
     
     marker_index = 0
     for region, postcodes in REGION_POSTCODE_LIST.items():
         coords = [POSTCODE_COORDS.get(pc, None) for pc in postcodes if pc in POSTCODE_COORDS]
         coords = [c for c in coords if c]
-        if coords:
-            lat = sum(c[0] for c in coords) / len(coords)
-            lon = sum(c[1] for c in coords) / len(coords)
+        if not coords:
+            logging.warning(f"No valid coordinates for region: {region}")
+            continue
+        lat = sum(c[0] for c in coords) / len(coords)
+        lon = sum(c[1] for c in coords) / len(coords)
+        try:
             marker = folium.Marker(
                 [lat, lon],
                 tooltip=region,
-                options={'region': region}  # Custom option to store region
+                options={'region': region}
             )
             marker.add_to(m)
-            # Bind the click event directly to the marker
-            m.add_child(folium.Element(f"""
+            js_code = f"""
             <script>
-                document.querySelectorAll('.leaflet-marker-icon')[{marker_index}].addEventListener('click', function(e) {{
-                    onMarkerClick({{target: {{options: {{region: '{region}'}}}}});
-                }});
+                var markers = document.querySelectorAll('.leaflet-marker-icon');
+                if (markers[{marker_index}]) {{
+                    markers[{marker_index}].addEventListener('click', function(e) {{
+                        onMarkerClick({{target: {{options: {{region: '{region}'}}}}});
+                    }});
+                }} else {{
+                    console.error('Marker at index {marker_index} not found');
+                }}
             </script>
-            """))
+            """
+            m.add_child(folium.Element(js_code))
+            logging.debug(f"Added marker for {region} at index {marker_index}")
             marker_index += 1
+        except Exception as e:
+            logging.error(f"Error adding marker for {region}: {e}")
+    
+    logging.info(f"Total markers added: {marker_index}")
     
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
     
     heatmap_path = "static/heatmap.html"
-    m.save(heatmap_path)
+    try:
+        m.save(heatmap_path)
+        if os.path.exists(heatmap_path):
+            logging.info(f"Heatmap saved successfully to {heatmap_path}")
+        else:
+            logging.error("Heatmap file was not created.")
+    except Exception as e:
+        logging.error(f"Failed to save heatmap: {e}")
+    
     return heatmap_path
 
 @app.route("/", methods=["GET", "POST"])
@@ -526,6 +536,7 @@ def index():
             data_source=data_source
         )
     except Exception as e:
+        logging.error(f"Error in index route: {e}")
         return render_template(
             "index.html",
             error=str(e),
