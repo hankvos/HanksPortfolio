@@ -424,7 +424,7 @@ def generate_heatmap(df):
     return heatmap_path
 
 def generate_price_size_scatter(df, selected_region):
-    os.makedirs('static', exist_ok=True')
+    os.makedirs('static', exist_ok=True)
     df_clean = df[df["Size"].str.match(r'^\d+(\.\d+)?\s*sqm$')].copy()
     df_clean["SizeNumeric"] = df_clean["Size"].str.replace(" sqm", "").astype(float)
     
@@ -489,7 +489,7 @@ def index():
                 stats = calculate_stats(region_data)
 
                 if selected_region and not selected_postcode:
-                    median_by_postcode = calculate_median_house_by_postcode(PROPERTY_DF, selfiltered_region)
+                    median_by_postcode = calculate_median_house_by_postcode(PROPERTY_DF, selected_region)
                     median_chart_path = generate_median_house_price_chart(PROPERTY_DF, median_by_postcode, chart_type="postcode", selected_region=selected_region)
                 elif selected_postcode:
                     median_by_suburb = calculate_median_house_by_suburb(PROPERTY_DF, selected_postcode)
