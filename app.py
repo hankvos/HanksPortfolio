@@ -53,40 +53,55 @@ def load_property_data():
     
     for zip_file in zip_files:
         try:
-            with zipfile.ZipFile(zip_file, 'r') as z:
-                all_files = z.namelist()
-                logging.info(f"Contents of {zip_file}: {all_files}")
-                csv_files = [f for f in all_files if f.endswith('.csv')]
-                if not csv_files:
-                    logging.warning(f"No CSV files found in {zip_file}")
+            with zipfile.ZipFile(zip_file, 'r') as outer_zip:
+                outer_files = outer_zip.namelist()
+                logging.info(f"Contents of {zip_file}: {outer_files}")
+                
+                nested_zips = [f for f in outer_files if f.endswith('.zip')]
+                if not nested_zips:
+                    logging.warning(f"No nested ZIP files found in {zip_file}")
                     continue
                 
-                for csv_file in csv_files:
+                for nested_zip_name in nested_zips:
                     try:
-                        # Extract year and month from filename (e.g., Property_202410.csv)
-                        parts = csv_file.split('_')
-                        if len(parts) > 1 and parts[1].startswith('20'):
-                            year_month = parts[1].split('.')[0]
-                            year = int(year_month[:4])
-                            month = int(year_month[4:])
-                        else:
-                            logging.warning(f"Skipping {csv_file}: unexpected filename format")
-                            continue
-                        
-                        if year not in earliest_year_months or (year == earliest_year_months[year][0] and month < earliest_year_months[year][1]):
-                            earliest_year_months[year] = (year, month)
-                        
-                        with z.open(csv_file) as f:
-                            df = pd.read_csv(io.BytesIO(f.read()), encoding='latin1', on_bad_lines='skip')
-                            all_dfs.append(df)
-                            logging.info(f"Loaded {len(df)} records from {csv_file}")
+                        # Extract nested ZIP into memory
+                        with outer_zip.open(nested_zip_name) as nested_zip_file:
+                            with zipfile.ZipFile(io.BytesIO(nested_zip_file.read())) as nested_zip:
+                                nested_files = nested_zip.namelist()
+                                logging.info(f"Contents of {nested_zip_name} in {zip_file}: {nested_files}")
+                                csv_files = [f for f in nested_files if f.endswith('.csv')]
+                                
+                                if not csv_files:
+                                    logging.warning(f"No CSV files found in {nested_zip_name}")
+                                    continue
+                                
+                                for csv_file in csv_files:
+                                    try:
+                                        # Extract year and month from nested ZIP name (e.g., 20240101.zip)
+                                        year_month = nested_zip_name.split('.')[0]
+                                        if year_month.startswith('20') and len(year_month) >= 6:
+                                            year = int(year_month[:4])
+                                            month = int(year_month[4:6])
+                                        else:
+                                            logging.warning(f"Skipping {csv_file} in {nested_zip_name}: unexpected format")
+                                            continue
+                                        
+                                        if year not in earliest_year_months or (year == earliest_year_months[year][0] and month < earliest_year_months[year][1]):
+                                            earliest_year_months[year] = (year, month)
+                                        
+                                        with nested_zip.open(csv_file) as f:
+                                            df = pd.read_csv(io.BytesIO(f.read()), encoding='latin1', on_bad_lines='skip')
+                                            all_dfs.append(df)
+                                            logging.info(f"Loaded {len(df)} records from {csv_file} in {nested_zip_name}")
+                                    except Exception as e:
+                                        logging.error(f"Error reading {csv_file} in {nested_zip_name}: {e}")
                     except Exception as e:
-                        logging.error(f"Error reading {csv_file} in {zip_file}: {e}")
+                        logging.error(f"Error processing nested ZIP {nested_zip_name} in {zip_file}: {e}")
         except Exception as e:
             logging.error(f"Error opening {zip_file}: {e}")
     
     if not all_dfs:
-        logging.error("No valid CSV files processed from ZIPs.")
+        logging.error("No valid CSV files processed from nested ZIPs.")
         return pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type"])
     
     df = pd.concat(all_dfs, ignore_index=True)
