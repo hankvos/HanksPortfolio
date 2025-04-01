@@ -254,7 +254,15 @@ def index():
     median_chart_path, price_hist_path, price_size_scatter_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path = generate_charts(filtered_df, selected_region, selected_postcode, selected_suburb)
     
     if filtered_df.empty:
-        return render_template("index.html", regions=REGION_POSTCODE_LIST.keys(), postcodes=[], suburbs=[], property_types=["ALL"] + sorted(df["Property Type"].unique().tolist()), heatmap_path=heatmap_path, data_source="NSW Valuer General Data", error="No properties found for the selected filters.")
+        return render_template("index.html", 
+                               regions=REGION_POSTCODE_LIST.keys(), 
+                               postcodes=[], 
+                               suburbs=[], 
+                               property_types=["ALL"] + sorted(df["Property Type"].unique().tolist()), 
+                               heatmap_path=heatmap_path, 
+                               median_chart_path=median_chart_path,  # Added here
+                               data_source="NSW Valuer General Data", 
+                               error="No properties found for the selected filters.")
     
     filtered_df["Map Link"] = filtered_df.apply(lambda row: f"https://www.google.com/maps/search/?api=1&query={row['Latitude']},{row['Longitude']}" if pd.notna(row.get('Latitude')) and pd.notna(row.get('Longitude')) else "#", axis=1)
     
