@@ -42,7 +42,7 @@ POSTCODE_COORDS = {
 
 def load_property_data():
     zip_files = [f for f in os.listdir() if f.endswith('.zip')]
-    logging.info(f"ZIP files found: {zip_files}")
+    logging.info(f"Found {len(zip_files)} ZIP files in directory")
     
     if not zip_files:
         logging.error("No ZIP files found in the directory.")
@@ -54,10 +54,9 @@ def load_property_data():
     for zip_file in zip_files:
         try:
             with zipfile.ZipFile(zip_file, 'r') as outer_zip:
-                outer_files = outer_zip.namelist()
-                logging.info(f"Contents of {zip_file}: {outer_files}")
+                nested_zips = [f for f in outer_zip.namelist() if f.endswith('.zip')]
+                logging.info(f"Processing {zip_file} with {len(nested_zips)} nested ZIPs")
                 
-                nested_zips = [f for f in outer_files if f.endswith('.zip')]
                 if not nested_zips:
                     logging.warning(f"No nested ZIP files found in {zip_file}")
                     continue
@@ -67,15 +66,14 @@ def load_property_data():
                         # Extract nested ZIP into memory
                         with outer_zip.open(nested_zip_name) as nested_zip_file:
                             with zipfile.ZipFile(io.BytesIO(nested_zip_file.read())) as nested_zip:
-                                nested_files = nested_zip.namelist()
-                                logging.info(f"Contents of {nested_zip_name} in {zip_file}: {nested_files}")
-                                csv_files = [f for f in nested_files if f.endswith('.csv')]
+                                dat_files = [f for f in nested_zip.namelist() if f.endswith('.DAT')]
+                                logging.info(f"Found {len(dat_files)} DAT files in {nested_zip_name}")
                                 
-                                if not csv_files:
-                                    logging.warning(f"No CSV files found in {nested_zip_name}")
+                                if not dat_files:
+                                    logging.warning(f"No DAT files found in {nested_zip_name}")
                                     continue
                                 
-                                for csv_file in csv_files:
+                                for dat_file in dat_files:
                                     try:
                                         # Extract year and month from nested ZIP name (e.g., 20240101.zip)
                                         year_month = nested_zip_name.split('.')[0]
@@ -83,36 +81,36 @@ def load_property_data():
                                             year = int(year_month[:4])
                                             month = int(year_month[4:6])
                                         else:
-                                            logging.warning(f"Skipping {csv_file} in {nested_zip_name}: unexpected format")
+                                            logging.warning(f"Skipping {dat_file} in {nested_zip_name}: unexpected ZIP name format")
                                             continue
                                         
                                         if year not in earliest_year_months or (year == earliest_year_months[year][0] and month < earliest_year_months[year][1]):
                                             earliest_year_months[year] = (year, month)
                                         
-                                        with nested_zip.open(csv_file) as f:
+                                        # Read DAT file (assuming CSV-like format for now)
+                                        with nested_zip.open(dat_file) as f:
                                             df = pd.read_csv(io.BytesIO(f.read()), encoding='latin1', on_bad_lines='skip')
                                             all_dfs.append(df)
-                                            logging.info(f"Loaded {len(df)} records from {csv_file} in {nested_zip_name}")
+                                            logging.info(f"Loaded {len(df)} records from {dat_file}")
                                     except Exception as e:
-                                        logging.error(f"Error reading {csv_file} in {nested_zip_name}: {e}")
+                                        logging.error(f"Error reading {dat_file} in {nested_zip_name}: {e}")
                     except Exception as e:
                         logging.error(f"Error processing nested ZIP {nested_zip_name} in {zip_file}: {e}")
         except Exception as e:
             logging.error(f"Error opening {zip_file}: {e}")
     
     if not all_dfs:
-        logging.error("No valid CSV files processed from nested ZIPs.")
+        logging.error("No valid DAT files processed from nested ZIPs.")
         return pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type"])
     
     df = pd.concat(all_dfs, ignore_index=True)
     
     df['Settlement Date'] = pd.to_datetime(df['Settlement Date'], format='%Y%m%d', errors='coerce')
-    settlement_counts = Counter(df['Settlement Date'].dt.strftime('%Y%m%d').dropna())
-    logging.info(f"Unique Settlement Dates and Counts: {dict(settlement_counts)}")
+    logging.info(f"Processed {len(df)} total records")
     
     cutoff_month = min(m for y, m in earliest_year_months.values()) - 1 if earliest_year_months else 9
     earliest_2024_month = earliest_year_months.get(2024, (2024, 10))[1]
-    logging.info(f"Earliest 2024 month: {earliest_2024_month}, Cutoff month: {cutoff_month}")
+    logging.info(f"Filtering: Earliest 2024 month: {earliest_2024_month}, Cutoff month: {cutoff_month}")
     
     df = df[df['Settlement Date'].dt.year.isin([2024, 2025]) & 
             (df['Settlement Date'].dt.month > cutoff_month)]
