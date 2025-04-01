@@ -54,23 +54,39 @@ def load_property_data():
     for zip_file in zip_files:
         try:
             with zipfile.ZipFile(zip_file, 'r') as z:
-                csv_files = [f for f in z.namelist() if f.endswith('.csv')]
+                all_files = z.namelist()
+                logging.info(f"Contents of {zip_file}: {all_files}")
+                csv_files = [f for f in all_files if f.endswith('.csv')]
+                if not csv_files:
+                    logging.warning(f"No CSV files found in {zip_file}")
+                    continue
+                
                 for csv_file in csv_files:
-                    year_month = csv_file.split('_')[1] + csv_file.split('_')[2].split('.')[0]
-                    year = int(year_month[:4])
-                    month = int(year_month[4:])
-                    
-                    if year not in earliest_year_months or (year == earliest_year_months[year][0] and month < earliest_year_months[year][1]):
-                        earliest_year_months[year] = (year, month)
-                    
-                    with z.open(csv_file) as f:
-                        df = pd.read_csv(io.BytesIO(f.read()), encoding='latin1', on_bad_lines='skip')
-                        all_dfs.append(df)
+                    try:
+                        # Extract year and month from filename (e.g., Property_202410.csv)
+                        parts = csv_file.split('_')
+                        if len(parts) > 1 and parts[1].startswith('20'):
+                            year_month = parts[1].split('.')[0]
+                            year = int(year_month[:4])
+                            month = int(year_month[4:])
+                        else:
+                            logging.warning(f"Skipping {csv_file}: unexpected filename format")
+                            continue
+                        
+                        if year not in earliest_year_months or (year == earliest_year_months[year][0] and month < earliest_year_months[year][1]):
+                            earliest_year_months[year] = (year, month)
+                        
+                        with z.open(csv_file) as f:
+                            df = pd.read_csv(io.BytesIO(f.read()), encoding='latin1', on_bad_lines='skip')
+                            all_dfs.append(df)
+                            logging.info(f"Loaded {len(df)} records from {csv_file}")
+                    except Exception as e:
+                        logging.error(f"Error reading {csv_file} in {zip_file}: {e}")
         except Exception as e:
-            logging.error(f"Error processing {zip_file}: {e}")
+            logging.error(f"Error opening {zip_file}: {e}")
     
     if not all_dfs:
-        logging.error("No valid CSV files found in ZIPs.")
+        logging.error("No valid CSV files processed from ZIPs.")
         return pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type"])
     
     df = pd.concat(all_dfs, ignore_index=True)
@@ -260,7 +276,7 @@ def index():
                                suburbs=[], 
                                property_types=["ALL"] + sorted(df["Property Type"].unique().tolist()), 
                                heatmap_path=heatmap_path, 
-                               median_chart_path=median_chart_path,  # Added here
+                               median_chart_path=median_chart_path,
                                data_source="NSW Valuer General Data", 
                                error="No properties found for the selected filters.")
     
