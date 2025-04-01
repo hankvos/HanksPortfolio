@@ -50,6 +50,7 @@ def load_property_data():
 
     all_dfs = []
     earliest_year_months = {}
+    total_records = 0
     
     for zip_file in zip_files:
         try:
@@ -75,7 +76,7 @@ def load_property_data():
                                 
                                 for dat_file in dat_files:
                                     try:
-                                        # Extract year and month from nested ZIP name (e.g., 20240101.zip)
+                                        # Extract year and month from nested ZIP name (e.g., 20241111.zip)
                                         year_month = nested_zip_name.split('.')[0]
                                         if year_month.startswith('20') and len(year_month) >= 6:
                                             year = int(year_month[:4])
@@ -87,11 +88,11 @@ def load_property_data():
                                         if year not in earliest_year_months or (year == earliest_year_months[year][0] and month < earliest_year_months[year][1]):
                                             earliest_year_months[year] = (year, month)
                                         
-                                        # Read DAT file (assuming CSV-like format for now)
+                                        # Read DAT file (assuming CSV-like format)
                                         with nested_zip.open(dat_file) as f:
                                             df = pd.read_csv(io.BytesIO(f.read()), encoding='latin1', on_bad_lines='skip')
                                             all_dfs.append(df)
-                                            logging.info(f"Loaded {len(df)} records from {dat_file}")
+                                            total_records += len(df)
                                     except Exception as e:
                                         logging.error(f"Error reading {dat_file} in {nested_zip_name}: {e}")
                     except Exception as e:
@@ -106,7 +107,7 @@ def load_property_data():
     df = pd.concat(all_dfs, ignore_index=True)
     
     df['Settlement Date'] = pd.to_datetime(df['Settlement Date'], format='%Y%m%d', errors='coerce')
-    logging.info(f"Processed {len(df)} total records")
+    logging.info(f"Processed {len(df)} total records from {len(all_dfs)} DAT files")
     
     cutoff_month = min(m for y, m in earliest_year_months.values()) - 1 if earliest_year_months else 9
     earliest_2024_month = earliest_year_months.get(2024, (2024, 10))[1]
