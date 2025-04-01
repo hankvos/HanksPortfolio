@@ -71,7 +71,7 @@ def load_property_data():
     
     if not all_dfs:
         logging.error("No valid CSV files found in ZIPs.")
-        return pd.DataFrame()
+        return pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type"])  # Empty DF with expected columns
     
     df = pd.concat(all_dfs, ignore_index=True)
     
@@ -109,13 +109,16 @@ def generate_heatmap(df):
     
     m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="CartoDB positron")
     
-    heatmap_data = df[df["Postcode"].isin(POSTCODE_COORDS.keys())].groupby("Postcode").agg({"Price": "median"}).reset_index()
-    heat_data = [[POSTCODE_COORDS[row["Postcode"]][0], POSTCODE_COORDS[row["Postcode"]][1], row["Price"] / 1e6]
-                 for _, row in heatmap_data.iterrows() if row["Postcode"] in POSTCODE_COORDS]
-    
-    logging.info(f"Heatmap data points: {len(heat_data)}")
-    if heat_data:
-        HeatMap(heat_data, radius=15, blur=20).add_to(m)
+    # Only generate heatmap if df has data and required columns
+    if not df.empty and "Postcode" in df.columns and "Price" in df.columns:
+        heatmap_data = df[df["Postcode"].isin(POSTCODE_COORDS.keys())].groupby("Postcode").agg({"Price": "median"}).reset_index()
+        heat_data = [[POSTCODE_COORDS[row["Postcode"]][0], POSTCODE_COORDS[row["Postcode"]][1], row["Price"] / 1e6]
+                     for _, row in heatmap_data.iterrows() if row["Postcode"] in POSTCODE_COORDS]
+        logging.info(f"Heatmap data points: {len(heat_data)}")
+        if heat_data:
+            HeatMap(heat_data, radius=15, blur=20).add_to(m)
+    else:
+        logging.info("No valid data for heatmap; skipping heatmap layer")
     
     markers_added = 0
     for i, (region, postcodes) in enumerate(REGION_POSTCODE_LIST.items()):
@@ -258,26 +261,26 @@ def index():
     unique_suburbs = sorted(filtered_df["Suburb"].unique().tolist())
     
     return render_template("index.html", 
-                          regions=REGION_POSTCODE_LIST.keys(),
-                          postcodes=unique_postcodes,
-                          suburbs=unique_suburbs,
-                          property_types=["ALL"] + sorted(df["Property Type"].unique().tolist()),
-                          properties=properties,
-                          avg_price=avg_price,
-                          stats=stats_dict,
-                          selected_region=selected_region,
-                          selected_postcode=selected_postcode,
-                          selected_suburb=selected_suburb,
-                          selected_property_type=selected_property_type,
-                          sort_by=sort_by,
-                          heatmap_path=heatmap_path,
-                          median_chart_path=median_chart_path,
-                          price_hist_path=price_hist_path,
-                          price_size_scatter_path=price_size_scatter_path,
-                          region_timeline_path=region_timeline_path,
-                          postcode_timeline_path=postcode_timeline_path,
-                          suburb_timeline_path=suburb_timeline_path,
-                          data_source="NSW Valuer General Data")
+                           regions=REGION_POSTCODE_LIST.keys(),
+                           postcodes=unique_postcodes,
+                           suburbs=unique_suburbs,
+                           property_types=["ALL"] + sorted(df["Property Type"].unique().tolist()),
+                           properties=properties,
+                           avg_price=avg_price,
+                           stats=stats_dict,
+                           selected_region=selected_region,
+                           selected_postcode=selected_postcode,
+                           selected_suburb=selected_suburb,
+                           selected_property_type=selected_property_type,
+                           sort_by=sort_by,
+                           heatmap_path=heatmap_path,
+                           median_chart_path=median_chart_path,
+                           price_hist_path=price_hist_path,
+                           price_size_scatter_path=price_size_scatter_path,
+                           region_timeline_path=region_timeline_path,
+                           postcode_timeline_path=postcode_timeline_path,
+                           suburb_timeline_path=suburb_timeline_path,
+                           data_source="NSW Valuer General Data")
 
 @app.route('/get_postcodes')
 def get_postcodes():
