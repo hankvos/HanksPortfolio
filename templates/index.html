@@ -120,11 +120,11 @@
                 </div>
             {% endif %}
             {% if properties %}
-                <p>Average Price: ${{ avg_price | intcomma }}</p>
+                <p>Average Price: ${{ "{:,.0f}".format(avg_price) }}</p>
                 <div class="stats">
-                    <p>Mean Price: ${{ stats.mean | intcomma }}</p>
-                    <p>Median Price: ${{ stats.median | intcomma }}</p>
-                    <p>Std Dev: ${{ stats.std | intcomma }}</p>
+                    <p>Mean Price: ${{ "{:,.0f}".format(stats.mean) }}</p>
+                    <p>Median Price: ${{ "{:,.0f}".format(stats.median) }}</p>
+                    <p>Std Dev: ${{ "{:,.0f}".format(stats.std) }}</p>
                 </div>
                 <table>
                     <tr>
@@ -137,7 +137,7 @@
                     {% for prop in properties %}
                         <tr>
                             <td>{{ prop["Address"] }}</td>
-                            <td>${{ prop["Price"] | intcomma }}</td>
+                            <td>${{ "{:,.0f}".format(prop["Price"]) }}</td>
                             <td>{{ prop["Size"] }}</td>
                             <td>{{ prop["Settlement Date"] }}</td>
                             <td><a href="{{ prop['Map Link'] }}" target="_blank">View</a></td>
