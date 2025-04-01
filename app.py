@@ -164,6 +164,7 @@ def generate_charts(df, selected_region=None, selected_postcode=None, selected_s
         median_chart_path = os.path.join(app.static_folder, "median_house_price_chart.png")
         plt.savefig(median_chart_path)
         plt.close()
+        logging.info(f"Generated placeholder chart at {median_chart_path}, exists: {os.path.exists(median_chart_path)}")
         return median_chart_path, None, None, None, None, None
     
     plt.figure(figsize=(10, 6))
@@ -174,6 +175,7 @@ def generate_charts(df, selected_region=None, selected_postcode=None, selected_s
     median_chart_path = os.path.join(app.static_folder, "median_house_price_chart.png")
     plt.savefig(median_chart_path)
     plt.close()
+    logging.info(f"Generated median chart at {median_chart_path}, exists: {os.path.exists(median_chart_path)}")
     
     plt.figure(figsize=(10, 6))
     filtered_df["Price"].hist(bins=30)
