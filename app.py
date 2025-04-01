@@ -397,7 +397,7 @@ def generate_heatmap(df):
     if heat_data:
         HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
-    # Add markers directly with folium
+    # Add markers with folium
     markers_added = 0
     for region, postcodes in REGION_POSTCODE_LIST.items():
         coords = [POSTCODE_COORDS.get(pc) for pc in postcodes if pc in POSTCODE_COORDS]
@@ -408,7 +408,8 @@ def generate_heatmap(df):
             folium.Marker(
                 [lat, lon],
                 tooltip=region,
-                popup=region
+                popup=region,
+                icon=folium.Icon(color="blue", icon="info-sign")
             ).add_to(m)
             markers_added += 1
         else:
@@ -418,7 +419,7 @@ def generate_heatmap(df):
     if all_coords:
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
     
-    # Minimal JavaScript for map initialization check
+    # Inject JavaScript for click events
     m.get_root().html.add_child(folium.Element("""
     <style>
         html, body { width: 100%; height: 100%; margin: 0; padding: 0; }
@@ -429,14 +430,51 @@ def generate_heatmap(df):
     <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOM loaded, checking map');
-            var mapInstance = window.map_{m.get_name()};
-            if (mapInstance) {
-                console.log('Map instance found');
-                mapInstance.invalidateSize();
-            } else {
+            console.log('DOM loaded, initializing map');
+            var mapInstance = window.map_""" + m.get_name() + """;
+            if (!mapInstance) {
                 console.error('Map instance not found');
+                return;
             }
+            console.log('Map instance found');
+            mapInstance.invalidateSize();
+            
+            mapInstance.eachLayer(function(layer) {
+                if (layer instanceof L.Marker) {
+                    var region = layer.options.popup ? layer.options.popup._content : 'Unknown';
+                    console.log('Found marker for region: ' + region);
+                    layer.on('click', function() {
+                        console.log('Marker clicked: ' + region);
+                        try {
+                            var parentDoc = window.parent.document;
+                            var regionSelect = parentDoc.getElementById('region');
+                            var updatePostcodes = window.parent.updatePostcodes;
+                            var form = parentDoc.getElementById('region-form') || parentDoc.forms[0];
+                            
+                            if (regionSelect) {
+                                regionSelect.value = region;
+                                console.log('Region set to: ' + region);
+                            } else {
+                                console.error('Region select not found');
+                            }
+                            if (typeof updatePostcodes === 'function') {
+                                updatePostcodes();
+                                console.log('updatePostcodes called');
+                            } else {
+                                console.warn('updatePostcodes not found');
+                            }
+                            if (form) {
+                                form.submit();
+                                console.log('Form submitted');
+                            } else {
+                                console.error('Form not found');
+                            }
+                        } catch (e) {
+                            console.error('Error in click handler: ' + e);
+                        }
+                    });
+                }
+            });
         });
     </script>
     """))
