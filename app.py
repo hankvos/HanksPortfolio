@@ -71,7 +71,7 @@ def load_property_data():
     
     if not all_dfs:
         logging.error("No valid CSV files found in ZIPs.")
-        return pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type"])  # Empty DF with expected columns
+        return pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type"])
     
     df = pd.concat(all_dfs, ignore_index=True)
     
@@ -109,7 +109,6 @@ def generate_heatmap(df):
     
     m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="CartoDB positron")
     
-    # Only generate heatmap if df has data and required columns
     if not df.empty and "Postcode" in df.columns and "Price" in df.columns:
         heatmap_data = df[df["Postcode"].isin(POSTCODE_COORDS.keys())].groupby("Postcode").agg({"Price": "median"}).reset_index()
         heat_data = [[POSTCODE_COORDS[row["Postcode"]][0], POSTCODE_COORDS[row["Postcode"]][1], row["Price"] / 1e6]
@@ -125,7 +124,7 @@ def generate_heatmap(df):
         coords = [POSTCODE_COORDS.get(pc) for pc in postcodes if pc in POSTCODE_COORDS]
         coords = [c for c in coords if c]
         if coords:
-            lat = sum(c[0] for c in coords) / len(coords) + (i * 0.05)  # Offset to ensure visibility
+            lat = sum(c[0] for c in coords) / len(coords) + (i * 0.05)
             lon = sum(c[1] for c in coords) / len(coords)
             popup_html = f'<a href="#" onclick="window.parent.document.getElementById(\'region\').value=\'{region}\'; window.parent.updatePostcodes(); window.parent.document.forms[0].submit();">{region}</a>'
             folium.Marker(
@@ -157,7 +156,15 @@ def generate_charts(df, selected_region=None, selected_postcode=None, selected_s
         filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
     
     if filtered_df.empty:
-        return None, None, None, None, None, None
+        plt.figure(figsize=(10, 6))
+        plt.text(0.5, 0.5, "No Data Available", fontsize=12, ha='center', va='center')
+        plt.title("Median House Price Over Time")
+        plt.xlabel("Settlement Date")
+        plt.ylabel("Price ($)")
+        median_chart_path = os.path.join(app.static_folder, "median_house_price_chart.png")
+        plt.savefig(median_chart_path)
+        plt.close()
+        return median_chart_path, None, None, None, None, None
     
     plt.figure(figsize=(10, 6))
     filtered_df.groupby(filtered_df["Settlement Date"].dt.to_period("M"))["Price"].median().plot()
@@ -221,7 +228,7 @@ def generate_charts(df, selected_region=None, selected_postcode=None, selected_s
 df = load_property_data()
 logging.info(f"Loaded {len(df)} records into DataFrame.")
 
-@app.route('/')
+@app.route('/', methods=["GET", "POST"])
 def index():
     selected_region = request.form.get("region", "")
     selected_postcode = request.form.get("postcode", "")
