@@ -48,9 +48,10 @@ def load_property_data():
         logging.error("No ZIP files found in the directory.")
         return pd.DataFrame()
 
-    all_dfs = []
+    # Initialize an empty DataFrame to append to incrementally
+    result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type"])
     earliest_year_months = {}
-    total_records = 0
+    total_dat_files = 0
     
     for zip_file in zip_files:
         try:
@@ -69,6 +70,7 @@ def load_property_data():
                             with zipfile.ZipFile(io.BytesIO(nested_zip_file.read())) as nested_zip:
                                 dat_files = [f for f in nested_zip.namelist() if f.endswith('.DAT')]
                                 logging.info(f"Found {len(dat_files)} DAT files in {nested_zip_name}")
+                                total_dat_files += len(dat_files)
                                 
                                 if not dat_files:
                                     logging.warning(f"No DAT files found in {nested_zip_name}")
@@ -88,11 +90,10 @@ def load_property_data():
                                         if year not in earliest_year_months or (year == earliest_year_months[year][0] and month < earliest_year_months[year][1]):
                                             earliest_year_months[year] = (year, month)
                                         
-                                        # Read DAT file (assuming CSV-like format)
+                                        # Read DAT file and append directly to result_df
                                         with nested_zip.open(dat_file) as f:
                                             df = pd.read_csv(io.BytesIO(f.read()), encoding='latin1', on_bad_lines='skip')
-                                            all_dfs.append(df)
-                                            total_records += len(df)
+                                            result_df = pd.concat([result_df, df], ignore_index=True)
                                     except Exception as e:
                                         logging.error(f"Error reading {dat_file} in {nested_zip_name}: {e}")
                     except Exception as e:
@@ -100,24 +101,23 @@ def load_property_data():
         except Exception as e:
             logging.error(f"Error opening {zip_file}: {e}")
     
-    if not all_dfs:
+    if result_df.empty:
         logging.error("No valid DAT files processed from nested ZIPs.")
         return pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type"])
     
-    df = pd.concat(all_dfs, ignore_index=True)
-    
-    df['Settlement Date'] = pd.to_datetime(df['Settlement Date'], format='%Y%m%d', errors='coerce')
-    logging.info(f"Processed {len(df)} total records from {len(all_dfs)} DAT files")
+    # Process dates and filter
+    result_df['Settlement Date'] = pd.to_datetime(result_df['Settlement Date'], format='%Y%m%d', errors='coerce')
+    logging.info(f"Processed {len(result_df)} total records from {total_dat_files} DAT files")
     
     cutoff_month = min(m for y, m in earliest_year_months.values()) - 1 if earliest_year_months else 9
     earliest_2024_month = earliest_year_months.get(2024, (2024, 10))[1]
     logging.info(f"Filtering: Earliest 2024 month: {earliest_2024_month}, Cutoff month: {cutoff_month}")
     
-    df = df[df['Settlement Date'].dt.year.isin([2024, 2025]) & 
-            (df['Settlement Date'].dt.month > cutoff_month)]
-    logging.info(f"After filtering to 2024/2025, records remaining: {len(df)}")
+    result_df = result_df[result_df['Settlement Date'].dt.year.isin([2024, 2025]) & 
+                          (result_df['Settlement Date'].dt.month > cutoff_month)]
+    logging.info(f"After filtering to 2024/2025, records remaining: {len(result_df)}")
     
-    return df
+    return result_df
 
 def generate_heatmap(df):
     os.makedirs('static', exist_ok=True)
