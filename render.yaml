@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: property-app
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 2 -b 0.0.0.0:$PORT app:app
+    envVars:
+      - key: PORT
+        value: 5000
+    healthCheckPath: /

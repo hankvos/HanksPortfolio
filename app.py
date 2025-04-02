@@ -4,6 +4,7 @@ import logging
 import zipfile
 from datetime import datetime
 from collections import Counter
+from functools import lru_cache
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -87,10 +88,6 @@ def load_property_data():
                                             lines = f.read().decode('latin1').splitlines()
                                             logging.info(f"{dat_file} - Total lines: {len(lines)}")
                                             
-                                            num_to_log = min(5, len(lines))
-                                            for i in range(num_to_log):
-                                                logging.info(f"{dat_file} - Line {i+1}: {lines[i]}")
-                                            
                                             parsed_rows = []
                                             for line in lines:
                                                 try:
@@ -102,25 +99,10 @@ def load_property_data():
                                             df = pd.DataFrame(parsed_rows)
                                             logging.info(f"{dat_file} - Parsed {len(df)} rows")
                                             
-                                            if not df.empty:
-                                                df[0] = df[0].str.strip()
-                                                record_counts = Counter(df[0])
-                                                logging.info(f"{dat_file} - Record type counts: {dict(record_counts)}")
-                                                
-                                                num_to_sample = min(3, len(df))
-                                                for i in range(num_to_sample):
-                                                    row = df.iloc[i].tolist()
-                                                    logging.info(f"{dat_file} - Parsed row {i+1}: {row}")
-                                            
                                             b_records = df[df[0] == 'B']
                                             logging.info(f"{dat_file} - Found {len(b_records)} B records")
                                             
                                             if not b_records.empty:
-                                                num_to_log = min(3, len(b_records))
-                                                for i in range(num_to_log):
-                                                    record = b_records.iloc[i].tolist()
-                                                    logging.info(f"{dat_file} - B record {i+1}: {record}")
-                                                
                                                 df = b_records.rename(columns={
                                                     8: "Street",
                                                     9: "Suburb",
@@ -156,77 +138,63 @@ def load_property_data():
         return pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "Block Size"])
     
     logging.info(f"Processed {len(result_df)} records from 2025.zip")
-    logging.info(f"Unique postcodes in loaded data: {result_df['Postcode'].unique().tolist()}")
-    
     return result_df
 
-def generate_heatmap(df):
-    os.makedirs('static', exist_ok=True)
+# Cache DataFrame globally
+df = load_property_data()
+logging.info(f"Loaded {len(df)} records into DataFrame at startup.")
+
+@lru_cache(maxsize=32)
+def generate_heatmap_cached(region=None, postcode=None, suburb=None):
+    filtered_df = df.copy()
+    if region:
+        filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))]
+    if postcode:
+        filtered_df = filtered_df[filtered_df["Postcode"] == postcode]
+    if suburb:
+        filtered_df = filtered_df[filtered_df["Suburb"] == suburb]
     
-    heatmap_path = os.path.join(app.static_folder, "heatmap.html")
-    if os.path.exists(heatmap_path):
-        os.remove(heatmap_path)
-        logging.info(f"Removed existing {heatmap_path} to force regeneration")
+    os.makedirs('static', exist_ok=True)
+    heatmap_path = os.path.join(app.static_folder, f"heatmap_{region or 'all'}_{postcode or 'all'}_{suburb or 'all'}.html")
     
     all_coords = [coord for pc in POSTCODE_COORDS for coord in [POSTCODE_COORDS[pc]]]
-    if not all_coords:
-        logging.warning("No coordinates found in POSTCODE_COORDS.")
-        center_lat, center_lon = -30.0, 153.0
-    else:
-        min_lat, max_lat = min(c[0] for c in all_coords), max(c[0] for c in all_coords)
-        min_lon, max_lon = min(c[1] for c in all_coords), max(c[1] for c in all_coords)
-        center_lat = (min_lat + max_lat) / 2
-        center_lon = (min_lon + max_lon) / 2
+    center_lat, center_lon = (min(c[0] for c in all_coords) + max(c[0] for c in all_coords)) / 2, (min(c[1] for c in all_coords) + max(c[1] for c in all_coords)) / 2
     
     m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="CartoDB positron")
     
-    if not df.empty and "Postcode" in df.columns and "Price" in df.columns:
-        heatmap_data = df[df["Postcode"].isin(POSTCODE_COORDS.keys())].groupby("Postcode").agg({"Price": "median"}).reset_index()
+    if not filtered_df.empty:
+        heatmap_data = filtered_df[filtered_df["Postcode"].isin(POSTCODE_COORDS.keys())].groupby("Postcode").agg({"Price": "median"}).reset_index()
         heat_data = [[POSTCODE_COORDS[row["Postcode"]][0], POSTCODE_COORDS[row["Postcode"]][1], row["Price"] / 1e6]
                      for _, row in heatmap_data.iterrows() if row["Postcode"] in POSTCODE_COORDS]
-        logging.info(f"Heatmap data points: {len(heat_data)}")
         if heat_data:
             HeatMap(heat_data, radius=15, blur=20).add_to(m)
-    else:
-        logging.info("No valid data for heatmap; skipping heatmap layer")
     
-    markers_added = 0
-    for i, (region, postcodes) in enumerate(REGION_POSTCODE_LIST.items()):
+    for i, (region_name, postcodes) in enumerate(REGION_POSTCODE_LIST.items()):
         coords = [POSTCODE_COORDS.get(pc) for pc in postcodes if pc in POSTCODE_COORDS]
         coords = [c for c in coords if c]
         if coords:
             lat = sum(c[0] for c in coords) / len(coords) + (i * 0.05)
             lon = sum(c[1] for c in coords) / len(coords)
-            popup_html = f'<a href="#" onclick="window.parent.document.getElementById(\'region\').value=\'{region}\'; window.parent.updatePostcodes(); window.parent.document.forms[0].submit();">{region}</a>'
-            folium.Marker(
-                [lat, lon],
-                tooltip=region,
-                popup=folium.Popup(popup_html, max_width=300),
-                icon=folium.Icon(color="blue", icon="info-sign")
-            ).add_to(m)
-            markers_added += 1
+            popup_html = f'<a href="#" onclick="window.parent.document.getElementById(\'region\').value=\'{region_name}\'; window.parent.updatePostcodes(); window.parent.document.forms[0].submit();">{region_name}</a>'
+            folium.Marker([lat, lon], tooltip=region_name, popup=folium.Popup(popup_html, max_width=300), icon=folium.Icon(color="blue", icon="info-sign")).add_to(m)
     
-    logging.info(f"Added {markers_added} markers to heatmap")
-    
-    if all_coords:
-        m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
-    
+    m.fit_bounds([[min(c[0] for c in all_coords), min(c[1] for c in all_coords)], [max(c[0] for c in all_coords), max(c[1] for c in all_coords)]])
     m.save(heatmap_path)
-    logging.info(f"Heatmap saved to {heatmap_path}, file exists: {os.path.exists(heatmap_path)}")
-    return "/static/heatmap.html"
+    logging.info(f"Generated heatmap at {heatmap_path}")
+    return f"/static/{os.path.basename(heatmap_path)}"
 
-def generate_charts(df, selected_region=None, selected_postcode=None, selected_suburb=None):
-    os.makedirs('static', exist_ok=True)
-    
+@lru_cache(maxsize=32)
+def generate_charts_cached(region=None, postcode=None, suburb=None):
     filtered_df = df.copy()
-    if selected_region:
-        filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
-    if selected_postcode:
-        filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
-    if selected_suburb:
-        filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
+    if region:
+        filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))]
+    if postcode:
+        filtered_df = filtered_df[filtered_df["Postcode"] == postcode]
+    if suburb:
+        filtered_df = filtered_df[filtered_df["Suburb"] == suburb]
     
-    logging.info(f"Filter applied - Region: {selected_region}, Postcode: {selected_postcode}, Suburb: {selected_suburb}, Records: {len(filtered_df)}")
+    os.makedirs('static', exist_ok=True)
+    chart_prefix = f"{region or 'all'}_{postcode or 'all'}_{suburb or 'all'}"
     
     if filtered_df.empty:
         plt.figure(figsize=(10, 6))
@@ -234,22 +202,20 @@ def generate_charts(df, selected_region=None, selected_postcode=None, selected_s
         plt.title("Median House Price Over Time")
         plt.xlabel("Settlement Date")
         plt.ylabel("Price ($)")
-        median_chart_path = os.path.join(app.static_folder, "median_house_price_chart.png")
+        median_chart_path = os.path.join(app.static_folder, f"median_house_price_{chart_prefix}.png")
         plt.savefig(median_chart_path)
-        plt.close()  # Close figure
-        logging.info(f"Generated placeholder chart at {median_chart_path}")
+        plt.close()
         return median_chart_path, None, None, None, None, None
     
-    # Median House Price Over Time
+    # Median House Price
     plt.figure(figsize=(10, 6))
     filtered_df.groupby(filtered_df["Settlement Date"].dt.to_period("M"))["Price"].median().plot()
     plt.title("Median House Price Over Time")
     plt.xlabel("Settlement Date")
     plt.ylabel("Price ($)")
-    median_chart_path = os.path.join(app.static_folder, "median_house_price_chart.png")
+    median_chart_path = os.path.join(app.static_folder, f"median_house_price_{chart_prefix}.png")
     plt.savefig(median_chart_path)
-    plt.close()  # Close figure
-    logging.info(f"Generated median chart at {median_chart_path}")
+    plt.close()
     
     # Price Histogram
     plt.figure(figsize=(10, 6))
@@ -257,79 +223,69 @@ def generate_charts(df, selected_region=None, selected_postcode=None, selected_s
     plt.title("Price Histogram")
     plt.xlabel("Price ($)")
     plt.ylabel("Frequency")
-    price_hist_path = os.path.join(app.static_folder, "price_hist.png")
+    price_hist_path = os.path.join(app.static_folder, f"price_hist_{chart_prefix}.png")
     plt.savefig(price_hist_path)
-    plt.close()  # Close figure
+    plt.close()
     
     # Price vs Block Size
-    price_size_scatter_path = os.path.join(app.static_folder, "price_size_scatter.png")
     plt.figure(figsize=(10, 6))
     if "Block Size" in filtered_df.columns and not filtered_df["Block Size"].isna().all():
         valid_data = filtered_df.dropna(subset=["Block Size", "Price"])
         if not valid_data.empty:
             plt.scatter(valid_data["Block Size"], valid_data["Price"], alpha=0.5)
-            plt.title("Price vs Block Size")
-            plt.xlabel("Block Size (sqm)")
-            plt.ylabel("Price ($)")
         else:
             plt.text(0.5, 0.5, "No Valid Block Size Data", fontsize=12, ha='center', va='center')
-            plt.title("Price vs Block Size")
-            plt.xlabel("Block Size (sqm)")
-            plt.ylabel("Price ($)")
     else:
         plt.text(0.5, 0.5, "Block Size Data Not Available", fontsize=12, ha='center', va='center')
-        plt.title("Price vs Block Size")
-        plt.xlabel("Block Size (sqm)")
-        plt.ylabel("Price ($)")
+    plt.title("Price vs Block Size")
+    plt.xlabel("Block Size (sqm)")
+    plt.ylabel("Price ($)")
+    price_size_scatter_path = os.path.join(app.static_folder, f"price_size_scatter_{chart_prefix}.png")
     plt.savefig(price_size_scatter_path)
-    plt.close()  # Close figure
-    logging.info(f"Generated price vs block size chart at {price_size_scatter_path}")
+    plt.close()
     
     # Region Timeline
     plt.figure(figsize=(10, 6))
-    if selected_region:
-        df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))].groupby("Settlement Date")["Price"].median().plot()
-    plt.title(f"Region Price Timeline: {selected_region or 'All'}")
+    if region:
+        df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))].groupby("Settlement Date")["Price"].median().plot()
+    plt.title(f"Region Price Timeline: {region or 'All'}")
     plt.xlabel("Settlement Date")
     plt.ylabel("Price ($)")
-    region_timeline_path = os.path.join(app.static_folder, "region_timeline.png")
+    region_timeline_path = os.path.join(app.static_folder, f"region_timeline_{chart_prefix}.png")
     plt.savefig(region_timeline_path)
-    plt.close()  # Close figure
+    plt.close()
     
     # Postcode Timeline
     plt.figure(figsize=(10, 6))
-    if selected_postcode:
-        df[df["Postcode"] == selected_postcode].groupby("Settlement Date")["Price"].median().plot()
-    plt.title(f"Postcode Price Timeline: {selected_postcode or 'All'}")
+    if postcode:
+        df[df["Postcode"] == postcode].groupby("Settlement Date")["Price"].median().plot()
+    plt.title(f"Postcode Price Timeline: {postcode or 'All'}")
     plt.xlabel("Settlement Date")
     plt.ylabel("Price ($)")
-    postcode_timeline_path = os.path.join(app.static_folder, "postcode_timeline.png")
+    postcode_timeline_path = os.path.join(app.static_folder, f"postcode_timeline_{chart_prefix}.png")
     plt.savefig(postcode_timeline_path)
-    plt.close()  # Close figure
+    plt.close()
     
     # Suburb Timeline
     plt.figure(figsize=(10, 6))
-    if selected_suburb:
-        df[df["Suburb"] == selected_suburb].groupby("Settlement Date")["Price"].median().plot()
-    plt.title(f"Suburb Price Timeline: {selected_suburb or 'All'}")
+    if suburb:
+        df[df["Suburb"] == suburb].groupby("Settlement Date")["Price"].median().plot()
+    plt.title(f"Suburb Price Timeline: {suburb or 'All'}")
     plt.xlabel("Settlement Date")
     plt.ylabel("Price ($)")
-    suburb_timeline_path = os.path.join(app.static_folder, "suburb_timeline.png")
+    suburb_timeline_path = os.path.join(app.static_folder, f"suburb_timeline_{chart_prefix}.png")
     plt.savefig(suburb_timeline_path)
-    plt.close()  # Close figure
+    plt.close()
     
     return median_chart_path, price_hist_path, price_size_scatter_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path
 
-df = load_property_data()
-logging.info(f"Loaded {len(df)} records into DataFrame.")
-
 @app.route('/', methods=["GET", "POST"])
 def index():
-    selected_region = request.form.get("region", "")
-    selected_postcode = request.form.get("postcode", "")
-    selected_suburb = request.form.get("suburb", "")
-    selected_property_type = request.form.get("property_type", "ALL")
-    sort_by = request.form.get("sort_by", "Settlement Date")
+    selected_region = request.form.get("region", None) if request.method == "POST" else None
+    selected_postcode = request.form.get("postcode", None) if request.method == "POST" else None
+    selected_suburb = request.form.get("suburb", None) if request.method == "POST" else None
+    selected_property_type = request.form.get("property_type", "ALL") if request.method == "POST" else "ALL"
+    sort_by = request.form.get("sort_by", "Settlement Date") if request.method == "POST" else "Settlement Date"
     
     filtered_df = df.copy()
     if selected_region:
@@ -343,10 +299,8 @@ def index():
     
     logging.info(f"Index filter - Region: {selected_region}, Postcode: {selected_postcode}, Suburb: {selected_suburb}, Type: {selected_property_type}, Records: {len(filtered_df)}")
     
-    heatmap_path = generate_heatmap(filtered_df)
-    logging.info(f"Passing heatmap_path to template: {heatmap_path}")
-    
-    median_chart_path, price_hist_path, price_size_scatter_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path = generate_charts(filtered_df, selected_region, selected_postcode, selected_suburb)
+    heatmap_path = generate_heatmap_cached(selected_region, selected_postcode, selected_suburb)
+    median_chart_path, price_hist_path, price_size_scatter_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path = generate_charts_cached(selected_region, selected_postcode, selected_suburb)
     
     if filtered_df.empty:
         return render_template("index.html", 
@@ -359,13 +313,8 @@ def index():
                                data_source="NSW Valuer General Data", 
                                error="No properties found for the selected filters.")
     
-    filtered_df["Map Link"] = filtered_df.apply(
-        lambda row: f"https://www.google.com/maps/search/?api=1&query={row['Latitude']},{row['Longitude']}" 
-        if pd.notna(row.get('Latitude')) and pd.notna(row.get('Longitude')) else "#", axis=1
-    )
-    
     filtered_df["Address"] = filtered_df["Street"] + ", " + filtered_df["Suburb"]
-    properties = filtered_df.sort_values(by=sort_by)[["Address", "Price", "Settlement Date", "Map Link"]].to_dict(orient="records")
+    properties = filtered_df.sort_values(by=sort_by)[["Address", "Price", "Settlement Date"]].to_dict(orient="records")
     avg_price = filtered_df["Price"].mean()
     stats_dict = {
         "mean": filtered_df["Price"].mean(),
@@ -384,9 +333,9 @@ def index():
                            properties=properties,
                            avg_price=avg_price,
                            stats=stats_dict,
-                           selected_region=selected_region,
-                           selected_postcode=selected_postcode,
-                           selected_suburb=selected_suburb,
+                           selected_region=selected_region or "",
+                           selected_postcode=selected_postcode or "",
+                           selected_suburb=selected_suburb or "",
                            selected_property_type=selected_property_type,
                            sort_by=sort_by,
                            heatmap_path=heatmap_path,
