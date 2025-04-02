@@ -59,7 +59,7 @@ def load_property_data():
     ]
     
     for zip_file in sorted(zip_files, reverse=True):
-        if "2025.zip" not in zip_file:  # Skip non-2025 files for this test
+        if "2025.zip" not in zip_file:
             logging.info(f"Skipping {zip_file} as we're focusing on 2025.zip")
             continue
         
@@ -72,7 +72,7 @@ def load_property_data():
                     logging.warning(f"No nested ZIP files found in {zip_file}")
                     continue
                 
-                target_zips = nested_zips  # For 2025.zip, process all nested zips
+                target_zips = nested_zips
                 target_zips.sort(reverse=True)
                 logging.info(f"Target nested ZIPs for {zip_file}: {target_zips}")
                 
@@ -90,8 +90,14 @@ def load_property_data():
                                 for dat_file in dat_files:
                                     try:
                                         with nested_zip.open(dat_file) as f:
+                                            # Read raw lines for debugging
+                                            lines = f.read().decode('latin1').splitlines()
+                                            num_to_log = min(5, len(lines))
+                                            for i in range(num_to_log):
+                                                logging.info(f"{dat_file} - Line {i+1}: {lines[i]}")
+                                            
                                             df = pd.read_csv(
-                                                io.BytesIO(f.read()),
+                                                io.BytesIO('\n'.join(lines).encode('latin1')),
                                                 sep=';',
                                                 header=None,
                                                 encoding='latin1',
@@ -104,13 +110,11 @@ def load_property_data():
                                                 logging.warning(f"No 'B' records in {dat_file}. Unique first columns: {unique_first}")
                                                 continue
                                             
-                                            # Log the first 3 B records (or fewer if less exist)
                                             num_to_log = min(3, len(b_records))
                                             for i in range(num_to_log):
                                                 record = b_records.iloc[i].tolist()
                                                 logging.info(f"{dat_file} - B record {i+1}: {record}")
                                             
-                                            # Process with corrected mapping
                                             df = b_records.rename(columns={
                                                 8: "Street",
                                                 9: "Suburb",
