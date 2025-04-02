@@ -25,12 +25,12 @@ logging.basicConfig(
 )
 
 REGION_POSTCODE_LIST = {
-    "Central Coast": ["2250", "2251", "2256", "2257", "2258", "2259", "2260", "2261", "2262", "2263"],
-    "Coffs Harbour - Grafton": ["2450", "2452", "2454", "2455", "2456"],
-    "Hunter Valley excl Newcastle": ["2320", "2321", "2325", "2326", "2327"],
-    "Newcastle and Lake Macquarie": ["2280", "2281", "2282", "2283", "2284", "2285", "2286", "2287", "2289", "2290", "2291"],
-    "Mid North Coast": ["2430", "2440", "2441", "2443", "2444", "2445", "2446"],
-    "Richmond - Tweed": ["2477", "2478", "2480", "2481", "2482", "2483"]
+    "Central Coast": ["2083", "2250", "2251", "2256", "2257", "2258", "2259", "2260", "2261", "2262", "2263", "2775"],
+    "Coffs Harbour - Grafton": ["2370", "2441", "2448", "2449", "2450", "2452", "2453", "2454", "2455", "2456", "2460", "2462", "2463", "2464", "2465", "2466", "2469"],
+    "Hunter Valley excl Newcastle": ["2250", "2311", "2314", "2315", "2316", "2317", "2318", "2319", "2320", "2321", "2322", "2323", "2324", "2325", "2326", "2327", "2328", "2329", "2330", "2331", "2333", "2334", "2335", "2336", "2337", "2338", "2420", "2421", "2850"],
+    "Newcastle and Lake Macquarie": ["2259", "2264", "2265", "2267", "2278", "2280", "2281", "2282", "2283", "2284", "2285", "2286", "2287", "2289", "2290", "2291", "2292", "2293", "2294", "2295", "2296", "2297", "2298", "2299", "2300", "2302", "2303", "2304", "2305", "2306", "2307", "2308", "2318", "2322", "2323"],
+    "Mid North Coast": ["2312", "2324", "2415", "2420", "2422", "2423", "2424", "2425", "2426", "2427", "2428", "2429", "2430", "2431", "2439", "2440", "2441", "2443", "2444", "2445", "2446", "2447", "2448", "2449", "2898"],
+    "Richmond - Tweed": ["2469", "2470", "2471", "2472", "2473", "2474", "2475", "2476", "2477", "2478", "2479", "2480", "2481", "2482", "2483", "2484", "2485", "2486", "2487", "2488", "2489", "2490"]
 }
 
 ALLOWED_POSTCODES = {pc for region in REGION_POSTCODE_LIST.values() for pc in region}
@@ -293,7 +293,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
     plt.savefig(price_hist_path)
     plt.close()
     region_timeline_path = None
-    if region:  # Only generate if region is selected
+    if region:
         plt.figure(figsize=(10, 6))
         df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))]["Settlement Date"] = pd.to_datetime(df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))]["Settlement Date"], format='%d/%m/%Y')
         df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))].groupby("Settlement Date")["Price"].median().plot()
@@ -304,7 +304,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
         plt.savefig(region_timeline_path)
         plt.close()
     postcode_timeline_path = None
-    if postcode:  # Only generate if postcode is selected
+    if postcode:
         plt.figure(figsize=(10, 6))
         df[df["Postcode"] == postcode]["Settlement Date"] = pd.to_datetime(df[df["Postcode"] == postcode]["Settlement Date"], format='%d/%m/%Y')
         df[df["Postcode"] == postcode].groupby("Settlement Date")["Price"].median().plot()
