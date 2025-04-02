@@ -89,6 +89,7 @@ def load_property_data():
                                             df = pd.DataFrame(parsed_rows)
                                             if not df.empty:
                                                 df = df.rename(columns={
+                                                    7: "House Number",  # New: Field 7
                                                     8: "Street",
                                                     9: "Suburb",
                                                     10: "Postcode",
@@ -99,6 +100,7 @@ def load_property_data():
                                                     2: "Property ID"
                                                 })
                                                 df["Unit Number"] = df["Property ID"].map(unit_numbers).fillna("")
+                                                df["Street"] = df["House Number"] + " " + df["Street"]  # Combine House Number with Street
                                                 df["Property Type"] = df["Property Type"].replace("RESIDENCE", "HOUSE")
                                                 df["Property Type"] = df.apply(
                                                     lambda row: "UNIT" if (
@@ -112,6 +114,10 @@ def load_property_data():
                                                 df["Price"] = pd.to_numeric(df["Price"], errors='coerce', downcast='float')
                                                 df["Block Size"] = pd.to_numeric(df["Block Size"], errors='coerce', downcast='float')
                                                 df["Settlement Date"] = pd.to_datetime(df["Settlement Date"], format='%Y%m%d', errors='coerce')
+                                                # Filter out dates before 2024
+                                                df = df[df["Settlement Date"].dt.year >= 2024]
+                                                # Format Settlement Date as DD/MM/YYYY
+                                                df["Settlement Date"] = df["Settlement Date"].dt.strftime('%d/%m/%Y')
                                                 df = df[df["Postcode"].isin(ALLOWED_POSTCODES)]
                                                 result_df = pd.concat([result_df, df], ignore_index=True)
                                     except Exception as e:
@@ -147,10 +153,11 @@ def generate_region_median_chart():
         return None
     regions, prices = zip(*sorted(median_prices.items(), key=lambda x: x[1]))
     plt.figure(figsize=(10, 6))
-    plt.barh(regions, prices)  # Reversed: Regions on y-axis, Prices on x-axis
+    plt.bar(regions, prices)  # Vertical bars: Regions on x-axis, Prices on y-axis
     plt.title("Median Price by Region")
-    plt.xlabel("Median Price ($)")  # Swapped to x-axis
-    plt.ylabel("Region")  # Swapped to y-axis
+    plt.xlabel("Region")
+    plt.ylabel("Median Price ($)")
+    plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
     chart_path = os.path.join(app.static_folder, "region_median_prices.png")
     plt.savefig(chart_path)
@@ -211,6 +218,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
         plt.close()
         return median_chart_path, None, None, None, None
     plt.figure(figsize=(10, 6))
+    filtered_df["Settlement Date"] = pd.to_datetime(filtered_df["Settlement Date"], format='%d/%m/%Y')  # Convert back for plotting
     filtered_df.groupby(filtered_df["Settlement Date"].dt.to_period("M"))["Price"].median().plot()
     plt.title("Median House Price Over Time")
     plt.xlabel("Settlement Date")
@@ -228,6 +236,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
     plt.close()
     plt.figure(figsize=(10, 6))
     if region:
+        df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))]["Settlement Date"] = pd.to_datetime(df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))]["Settlement Date"], format='%d/%m/%Y')
         df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))].groupby("Settlement Date")["Price"].median().plot()
     plt.title(f"Region Price Timeline: {region or 'All'}")
     plt.xlabel("Settlement Date")
@@ -237,6 +246,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
     plt.close()
     plt.figure(figsize=(10, 6))
     if postcode:
+        df[df["Postcode"] == postcode]["Settlement Date"] = pd.to_datetime(df[df["Postcode"] == postcode]["Settlement Date"], format='%d/%m/%Y')
         df[df["Postcode"] == postcode].groupby("Settlement Date")["Price"].median().plot()
     plt.title(f"Postcode Price Timeline: {postcode or 'All'}")
     plt.xlabel("Settlement Date")
@@ -245,8 +255,9 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
     plt.savefig(postcode_timeline_path)
     plt.close()
     suburb_timeline_path = None
-    if suburb:  # Only generate if suburb is selected
+    if suburb:
         plt.figure(figsize=(10, 6))
+        df[df["Suburb"] == suburb]["Settlement Date"] = pd.to_datetime(df[df["Suburb"] == suburb]["Settlement Date"], format='%d/%m/%Y')
         df[df["Suburb"] == suburb].groupby("Settlement Date")["Price"].median().plot()
         plt.title(f"Suburb Price Timeline: {suburb}")
         plt.xlabel("Settlement Date")
@@ -284,7 +295,7 @@ def index():
         filtered_df["Map Link"] = filtered_df["Address"].apply(
             lambda addr: f"https://www.google.com/maps/place/{addr.replace(' ', '+')}"
         )
-        properties = filtered_df.sort_values(by=sort_by)[["Address", "Price", "Settlement Date", "Map Link"]].to_dict(orient="records")
+        properties = filtered_df.sort_values(by=sort_by)[["Address", "Price", "Settlement Date", "Block Size", "Map Link"]].to_dict(orient="records")
     
     if filtered_df.empty and (selected_region or selected_postcode or selected_suburb):
         return render_template("index.html", 

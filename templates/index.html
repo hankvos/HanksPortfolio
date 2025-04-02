@@ -130,6 +130,7 @@
                         <th>Address</th>
                         <th>Price</th>
                         <th>Settlement Date</th>
+                        <th>Block Size (sqm)</th>
                         <th>Map</th>
                     </tr>
                     {% for prop in properties %}
@@ -137,6 +138,7 @@
                             <td>{{ prop["Address"] }}</td>
                             <td>${{ "{:,.0f}".format(prop["Price"]) }}</td>
                             <td>{{ prop["Settlement Date"] }}</td>
+                            <td>{{ "{:,.0f}".format(prop["Block Size"]) if prop["Block Size"] else "N/A" }}</td>
                             <td><a href="{{ prop['Map Link'] }}" target="_blank">View</a></td>
                         </tr>
                     {% endfor %}
