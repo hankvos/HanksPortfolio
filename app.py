@@ -90,12 +90,16 @@ def load_property_data():
                                 for dat_file in dat_files:
                                     try:
                                         with nested_zip.open(dat_file) as f:
-                                            # Read raw lines for debugging
+                                            # Read raw lines
                                             lines = f.read().decode('latin1').splitlines()
+                                            logging.info(f"{dat_file} - Total lines: {len(lines)}")
+                                            
+                                            # Log first 5 raw lines
                                             num_to_log = min(5, len(lines))
                                             for i in range(num_to_log):
                                                 logging.info(f"{dat_file} - Line {i+1}: {lines[i]}")
                                             
+                                            # Parse with pandas
                                             df = pd.read_csv(
                                                 io.BytesIO('\n'.join(lines).encode('latin1')),
                                                 sep=';',
@@ -103,39 +107,51 @@ def load_property_data():
                                                 encoding='latin1',
                                                 on_bad_lines='skip'
                                             )
+                                            logging.info(f"{dat_file} - Parsed {len(df)} rows")
+                                            
+                                            # Clean first column and count record types
                                             df[0] = df[0].str.strip()
+                                            record_counts = Counter(df[0])
+                                            logging.info(f"{dat_file} - Record type counts: {dict(record_counts)}")
+                                            
+                                            # Log sample of parsed rows (up to 3)
+                                            num_to_sample = min(3, len(df))
+                                            for i in range(num_to_sample):
+                                                row = df.iloc[i].tolist()
+                                                logging.info(f"{dat_file} - Parsed row {i+1}: {row}")
+                                            
+                                            # Filter for B records
                                             b_records = df[df[0] == 'B']
-                                            if b_records.empty:
-                                                unique_first = df[0].unique().tolist()
-                                                logging.warning(f"No 'B' records in {dat_file}. Unique first columns: {unique_first}")
-                                                continue
+                                            logging.info(f"{dat_file} - Found {len(b_records)} B records")
                                             
-                                            num_to_log = min(3, len(b_records))
-                                            for i in range(num_to_log):
-                                                record = b_records.iloc[i].tolist()
-                                                logging.info(f"{dat_file} - B record {i+1}: {record}")
-                                            
-                                            df = b_records.rename(columns={
-                                                8: "Street",
-                                                9: "Suburb",
-                                                10: "Postcode",
-                                                14: "Settlement Date",
-                                                15: "Price",
-                                                18: "Property Type"
-                                            })
-                                            df = df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street"]]
-                                            
-                                            df["Postcode"] = df["Postcode"].astype(str)
-                                            df["Price"] = pd.to_numeric(df["Price"], errors='coerce', downcast='float')
-                                            df["Settlement Date"] = pd.to_datetime(df["Settlement Date"], format='%Y%m%d', errors='coerce')
-                                            
-                                            df = df[df["Postcode"].isin(ALLOWED_POSTCODES)]
-                                            df = df[
-                                                ((df['Settlement Date'].dt.year == 2024) & (df['Settlement Date'].dt.month >= 10)) |
-                                                ((df['Settlement Date'].dt.year == 2025) & (df['Settlement Date'].dt.month <= 3))
-                                            ]
-                                            
-                                            result_df = pd.concat([result_df, df], ignore_index=True)
+                                            if not b_records.empty:
+                                                num_to_log = min(3, len(b_records))
+                                                for i in range(num_to_log):
+                                                    record = b_records.iloc[i].tolist()
+                                                    logging.info(f"{dat_file} - B record {i+1}: {record}")
+                                                
+                                                # Process B records
+                                                df = b_records.rename(columns={
+                                                    8: "Street",
+                                                    9: "Suburb",
+                                                    10: "Postcode",
+                                                    14: "Settlement Date",
+                                                    15: "Price",
+                                                    18: "Property Type"
+                                                })
+                                                df = df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street"]]
+                                                
+                                                df["Postcode"] = df["Postcode"].astype(str)
+                                                df["Price"] = pd.to_numeric(df["Price"], errors='coerce', downcast='float')
+                                                df["Settlement Date"] = pd.to_datetime(df["Settlement Date"], format='%Y%m%d', errors='coerce')
+                                                
+                                                df = df[df["Postcode"].isin(ALLOWED_POSTCODES)]
+                                                df = df[
+                                                    ((df['Settlement Date'].dt.year == 2024) & (df['Settlement Date'].dt.month >= 10)) |
+                                                    ((df['Settlement Date'].dt.year == 2025) & (df['Settlement Date'].dt.month <= 3))
+                                                ]
+                                                
+                                                result_df = pd.concat([result_df, df], ignore_index=True)
                                     except Exception as e:
                                         logging.error(f"Error reading {dat_file} in {nested_zip_name}: {e}")
                     except Exception as e:
