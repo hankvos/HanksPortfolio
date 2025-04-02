@@ -50,7 +50,7 @@ def load_property_data():
         logging.error("No ZIP files found in the directory.")
         return pd.DataFrame()
 
-    result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street"])
+    result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "Block Size"])
     
     for zip_file in sorted(zip_files, reverse=True):
         if "2025.zip" not in zip_file:
@@ -84,16 +84,13 @@ def load_property_data():
                                 for dat_file in dat_files:
                                     try:
                                         with nested_zip.open(dat_file) as f:
-                                            # Read raw lines
                                             lines = f.read().decode('latin1').splitlines()
                                             logging.info(f"{dat_file} - Total lines: {len(lines)}")
                                             
-                                            # Log first 5 raw lines
                                             num_to_log = min(5, len(lines))
                                             for i in range(num_to_log):
                                                 logging.info(f"{dat_file} - Line {i+1}: {lines[i]}")
                                             
-                                            # Parse manually into a list of lists
                                             parsed_rows = []
                                             for line in lines:
                                                 try:
@@ -102,23 +99,19 @@ def load_property_data():
                                                 except Exception as e:
                                                     logging.warning(f"{dat_file} - Failed to split line: {line}, Error: {e}")
                                             
-                                            # Convert to DataFrame
                                             df = pd.DataFrame(parsed_rows)
                                             logging.info(f"{dat_file} - Parsed {len(df)} rows")
                                             
-                                            # Clean first column and count record types
                                             if not df.empty:
                                                 df[0] = df[0].str.strip()
                                                 record_counts = Counter(df[0])
                                                 logging.info(f"{dat_file} - Record type counts: {dict(record_counts)}")
                                                 
-                                                # Log sample of parsed rows (up to 3)
                                                 num_to_sample = min(3, len(df))
                                                 for i in range(num_to_sample):
                                                     row = df.iloc[i].tolist()
                                                     logging.info(f"{dat_file} - Parsed row {i+1}: {row}")
                                             
-                                            # Filter for B records
                                             b_records = df[df[0] == 'B']
                                             logging.info(f"{dat_file} - Found {len(b_records)} B records")
                                             
@@ -128,19 +121,20 @@ def load_property_data():
                                                     record = b_records.iloc[i].tolist()
                                                     logging.info(f"{dat_file} - B record {i+1}: {record}")
                                                 
-                                                # Process B records
                                                 df = b_records.rename(columns={
                                                     8: "Street",
                                                     9: "Suburb",
                                                     10: "Postcode",
+                                                    11: "Block Size",  # Added Block Size
                                                     14: "Settlement Date",
                                                     15: "Price",
                                                     18: "Property Type"
                                                 })
-                                                df = df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street"]]
+                                                df = df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "Block Size"]]
                                                 
                                                 df["Postcode"] = df["Postcode"].astype(str)
                                                 df["Price"] = pd.to_numeric(df["Price"], errors='coerce', downcast='float')
+                                                df["Block Size"] = pd.to_numeric(df["Block Size"], errors='coerce', downcast='float')
                                                 df["Settlement Date"] = pd.to_datetime(df["Settlement Date"], format='%Y%m%d', errors='coerce')
                                                 
                                                 df = df[df["Postcode"].isin(ALLOWED_POSTCODES)]
@@ -159,7 +153,7 @@ def load_property_data():
     
     if result_df.empty:
         logging.error("No valid DAT files processed or no data matches filters.")
-        return pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type"])
+        return pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "Block Size"])
     
     logging.info(f"Processed {len(result_df)} records from 2025.zip")
     logging.info(f"Unique postcodes in loaded data: {result_df['Postcode'].unique().tolist()}")
@@ -265,14 +259,28 @@ def generate_charts(df, selected_region=None, selected_postcode=None, selected_s
     plt.savefig(price_hist_path)
     plt.close()
     
-    plt.figure(figsize=(10, 6))
-    plt.scatter(filtered_df.get("Block Size", pd.Series()), filtered_df["Price"], alpha=0.5)
-    plt.title("Price vs Block Size")
-    plt.xlabel("Block Size (sqm)")
-    plt.ylabel("Price ($)")
     price_size_scatter_path = os.path.join(app.static_folder, "price_size_scatter.png")
+    plt.figure(figsize=(10, 6))
+    if "Block Size" in filtered_df.columns and not filtered_df["Block Size"].isna().all():
+        valid_data = filtered_df.dropna(subset=["Block Size", "Price"])
+        if not valid_data.empty:
+            plt.scatter(valid_data["Block Size"], valid_data["Price"], alpha=0.5)
+            plt.title("Price vs Block Size")
+            plt.xlabel("Block Size (sqm)")
+            plt.ylabel("Price ($)")
+        else:
+            plt.text(0.5, 0.5, "No Valid Block Size Data", fontsize=12, ha='center', va='center')
+            plt.title("Price vs Block Size")
+            plt.xlabel("Block Size (sqm)")
+            plt.ylabel("Price ($)")
+    else:
+        plt.text(0.5, 0.5, "Block Size Data Not Available", fontsize=12, ha='center', va='center')
+        plt.title("Price vs Block Size")
+        plt.xlabel("Block Size (sqm)")
+        plt.ylabel("Price ($)")
     plt.savefig(price_size_scatter_path)
     plt.close()
+    logging.info(f"Generated price vs block size chart at {price_size_scatter_path}")
     
     plt.figure(figsize=(10, 6))
     if selected_region:
