@@ -125,7 +125,7 @@ def load_property_data():
                                                     8: "Street",
                                                     9: "Suburb",
                                                     10: "Postcode",
-                                                    11: "Block Size",  # Added Block Size
+                                                    11: "Block Size",
                                                     14: "Settlement Date",
                                                     15: "Price",
                                                     18: "Property Type"
@@ -236,10 +236,11 @@ def generate_charts(df, selected_region=None, selected_postcode=None, selected_s
         plt.ylabel("Price ($)")
         median_chart_path = os.path.join(app.static_folder, "median_house_price_chart.png")
         plt.savefig(median_chart_path)
-        plt.close()
+        plt.close()  # Close figure
         logging.info(f"Generated placeholder chart at {median_chart_path}")
         return median_chart_path, None, None, None, None, None
     
+    # Median House Price Over Time
     plt.figure(figsize=(10, 6))
     filtered_df.groupby(filtered_df["Settlement Date"].dt.to_period("M"))["Price"].median().plot()
     plt.title("Median House Price Over Time")
@@ -247,9 +248,10 @@ def generate_charts(df, selected_region=None, selected_postcode=None, selected_s
     plt.ylabel("Price ($)")
     median_chart_path = os.path.join(app.static_folder, "median_house_price_chart.png")
     plt.savefig(median_chart_path)
-    plt.close()
+    plt.close()  # Close figure
     logging.info(f"Generated median chart at {median_chart_path}")
     
+    # Price Histogram
     plt.figure(figsize=(10, 6))
     filtered_df["Price"].hist(bins=30)
     plt.title("Price Histogram")
@@ -257,8 +259,9 @@ def generate_charts(df, selected_region=None, selected_postcode=None, selected_s
     plt.ylabel("Frequency")
     price_hist_path = os.path.join(app.static_folder, "price_hist.png")
     plt.savefig(price_hist_path)
-    plt.close()
+    plt.close()  # Close figure
     
+    # Price vs Block Size
     price_size_scatter_path = os.path.join(app.static_folder, "price_size_scatter.png")
     plt.figure(figsize=(10, 6))
     if "Block Size" in filtered_df.columns and not filtered_df["Block Size"].isna().all():
@@ -279,38 +282,41 @@ def generate_charts(df, selected_region=None, selected_postcode=None, selected_s
         plt.xlabel("Block Size (sqm)")
         plt.ylabel("Price ($)")
     plt.savefig(price_size_scatter_path)
-    plt.close()
+    plt.close()  # Close figure
     logging.info(f"Generated price vs block size chart at {price_size_scatter_path}")
     
+    # Region Timeline
     plt.figure(figsize=(10, 6))
     if selected_region:
         df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))].groupby("Settlement Date")["Price"].median().plot()
-    plt.title(f"Region Price Timeline: {selected_region}")
+    plt.title(f"Region Price Timeline: {selected_region or 'All'}")
     plt.xlabel("Settlement Date")
     plt.ylabel("Price ($)")
     region_timeline_path = os.path.join(app.static_folder, "region_timeline.png")
     plt.savefig(region_timeline_path)
-    plt.close()
+    plt.close()  # Close figure
     
+    # Postcode Timeline
     plt.figure(figsize=(10, 6))
     if selected_postcode:
         df[df["Postcode"] == selected_postcode].groupby("Settlement Date")["Price"].median().plot()
-    plt.title(f"Postcode Price Timeline: {selected_postcode}")
+    plt.title(f"Postcode Price Timeline: {selected_postcode or 'All'}")
     plt.xlabel("Settlement Date")
     plt.ylabel("Price ($)")
     postcode_timeline_path = os.path.join(app.static_folder, "postcode_timeline.png")
     plt.savefig(postcode_timeline_path)
-    plt.close()
+    plt.close()  # Close figure
     
+    # Suburb Timeline
     plt.figure(figsize=(10, 6))
     if selected_suburb:
         df[df["Suburb"] == selected_suburb].groupby("Settlement Date")["Price"].median().plot()
-    plt.title(f"Suburb Price Timeline: {selected_suburb}")
+    plt.title(f"Suburb Price Timeline: {selected_suburb or 'All'}")
     plt.xlabel("Settlement Date")
     plt.ylabel("Price ($)")
     suburb_timeline_path = os.path.join(app.static_folder, "suburb_timeline.png")
     plt.savefig(suburb_timeline_path)
-    plt.close()
+    plt.close()  # Close figure
     
     return median_chart_path, price_hist_path, price_size_scatter_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path
 
@@ -413,4 +419,5 @@ def static_files(filename):
     return send_from_directory(app.static_folder, filename)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
