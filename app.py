@@ -48,11 +48,11 @@ def load_property_data():
         logging.error("No ZIP files found in the directory.")
         return pd.DataFrame()
 
-    # Initialize an empty DataFrame with minimal columns
-    result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type"])
+    all_dfs = []
     earliest_year_months = {}
-    total_dat_files = 0
-    total_records_before_filter = 0
+    total_records = 0
+    nested_zip_count = 0
+    MAX_NESTED_ZIPS = 5
     
     for zip_file in zip_files:
         try:
@@ -65,57 +65,38 @@ def load_property_data():
                     continue
                 
                 for nested_zip_name in nested_zips:
+                    if nested_zip_count >= MAX_NESTED_ZIPS:
+                        logging.info(f"Reached limit of {MAX_NESTED_ZIPS} nested ZIPs, skipping remaining")
+                        break
+                    nested_zip_count += 1
+                    
                     try:
-                        # Extract year and month from nested ZIP name (e.g., 20250113.zip)
-                        year_month = nested_zip_name.split('.')[0]
-                        if year_month.startswith('20') and len(year_month) >= 6:
-                            year = int(year_month[:4])
-                            month = int(year_month[4:6])
-                        else:
-                            logging.warning(f"Skipping {nested_zip_name}: unexpected ZIP name format")
-                            continue
-                        
-                        if year not in earliest_year_months or (year == earliest_year_months[year][0] and month < earliest_year_months[year][1]):
-                            earliest_year_months[year] = (year, month)
-                        
-                        # Extract nested ZIP into memory
                         with outer_zip.open(nested_zip_name) as nested_zip_file:
                             with zipfile.ZipFile(io.BytesIO(nested_zip_file.read())) as nested_zip:
                                 dat_files = [f for f in nested_zip.namelist() if f.endswith('.DAT')]
                                 logging.info(f"Found {len(dat_files)} DAT files in {nested_zip_name}")
-                                total_dat_files += len(dat_files)
                                 
                                 if not dat_files:
                                     logging.warning(f"No DAT files found in {nested_zip_name}")
                                     continue
                                 
-                                cutoff_month = min(m for y, m in earliest_year_months.values()) - 1 if earliest_year_months else 9
-                                
                                 for dat_file in dat_files:
                                     try:
-                                        # Read DAT file with optimized dtypes
+                                        year_month = nested_zip_name.split('.')[0]
+                                        if year_month.startswith('20') and len(year_month) >= 6:
+                                            year = int(year_month[:4])
+                                            month = int(year_month[4:6])
+                                        else:
+                                            logging.warning(f"Skipping {dat_file} in {nested_zip_name}: unexpected ZIP name format")
+                                            continue
+                                        
+                                        if year not in earliest_year_months or (year == earliest_year_months[year][0] and month < earliest_year_months[year][1]):
+                                            earliest_year_months[year] = (year, month)
+                                        
                                         with nested_zip.open(dat_file) as f:
-                                            df = pd.read_csv(
-                                                io.BytesIO(f.read()),
-                                                encoding='latin1',
-                                                on_bad_lines='skip',
-                                                dtype={
-                                                    "Postcode": "str",
-                                                    "Price": "float32",
-                                                    "Settlement Date": "str",
-                                                    "Suburb": "str",
-                                                    "Property Type": "str"
-                                                }
-                                            )
-                                            total_records_before_filter += len(df)
-                                            
-                                            # Convert and filter dates early
-                                            df['Settlement Date'] = pd.to_datetime(df['Settlement Date'], format='%Y%m%d', errors='coerce')
-                                            df = df[df['Settlement Date'].dt.year.isin([2024, 2025]) & 
-                                                    (df['Settlement Date'].dt.month > cutoff_month)]
-                                            
-                                            # Append filtered data
-                                            result_df = pd.concat([result_df, df], ignore_index=True)
+                                            df = pd.read_csv(io.BytesIO(f.read()), encoding='latin1', on_bad_lines='skip')
+                                            all_dfs.append(df)
+                                            total_records += len(df)
                                     except Exception as e:
                                         logging.error(f"Error reading {dat_file} in {nested_zip_name}: {e}")
                     except Exception as e:
@@ -123,13 +104,28 @@ def load_property_data():
         except Exception as e:
             logging.error(f"Error opening {zip_file}: {e}")
     
-    if result_df.empty:
+    if not all_dfs:
         logging.error("No valid DAT files processed from nested ZIPs.")
         return pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type"])
     
-    logging.info(f"Processed {total_records_before_filter} records from {total_dat_files} DAT files, {len(result_df)} remaining after filtering")
+    df = pd.concat(all_dfs, ignore_index=True)
     
-    return result_df
+    df['Settlement Date'] = pd.to_datetime(df['Settlement Date'], format='%Y%m%d', errors='coerce')
+    logging.info(f"Processed {len(df)} total records from {nested_zip_count} nested ZIPs")
+    
+    cutoff_month = min(m for y, m in earliest_year_months.values()) - 1 if earliest_year_months else 9
+    earliest_2024_month = earliest_year_months.get(2024, (2024, 10))[1]
+    logging.info(f"Filtering: Earliest 2024 month: {earliest_2024_month}, Cutoff month: {cutoff_month}")
+    
+    df = df[df['Settlement Date'].dt.year.isin([2024, 2025]) & 
+            (df['Settlement Date'].dt.month > cutoff_month)]
+    logging.info(f"After filtering to 2024/2025, records remaining: {len(df)}")
+    
+    # Log unique postcodes to debug
+    unique_postcodes = df["Postcode"].unique().tolist()
+    logging.info(f"Unique postcodes in loaded data: {unique_postcodes}")
+    
+    return df
 
 def generate_heatmap(df):
     os.makedirs('static', exist_ok=True)
@@ -197,6 +193,9 @@ def generate_charts(df, selected_region=None, selected_postcode=None, selected_s
     if selected_suburb:
         filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
     
+    # Log filter results
+    logging.info(f"Filter applied - Region: {selected_region}, Postcode: {selected_postcode}, Suburb: {selected_suburb}, Records: {len(filtered_df)}")
+    
     if filtered_df.empty:
         plt.figure(figsize=(10, 6))
         plt.text(0.5, 0.5, "No Data Available", fontsize=12, ha='center', va='center')
@@ -206,7 +205,7 @@ def generate_charts(df, selected_region=None, selected_postcode=None, selected_s
         median_chart_path = os.path.join(app.static_folder, "median_house_price_chart.png")
         plt.savefig(median_chart_path)
         plt.close()
-        logging.info(f"Generated placeholder chart at {median_chart_path}, exists: {os.path.exists(median_chart_path)}")
+        logging.info(f"Generated placeholder chart at {median_chart_path}")
         return median_chart_path, None, None, None, None, None
     
     plt.figure(figsize=(10, 6))
@@ -217,7 +216,7 @@ def generate_charts(df, selected_region=None, selected_postcode=None, selected_s
     median_chart_path = os.path.join(app.static_folder, "median_house_price_chart.png")
     plt.savefig(median_chart_path)
     plt.close()
-    logging.info(f"Generated median chart at {median_chart_path}, exists: {os.path.exists(median_chart_path)}")
+    logging.info(f"Generated median chart at {median_chart_path}")
     
     plt.figure(figsize=(10, 6))
     filtered_df["Price"].hist(bins=30)
@@ -289,6 +288,9 @@ def index():
         filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
     if selected_property_type != "ALL":
         filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
+    
+    # Log filter results
+    logging.info(f"Index filter - Region: {selected_region}, Postcode: {selected_postcode}, Suburb: {selected_suburb}, Type: {selected_property_type}, Records: {len(filtered_df)}")
     
     heatmap_path = generate_heatmap(filtered_df)
     logging.info(f"Passing heatmap_path to template: {heatmap_path}")
