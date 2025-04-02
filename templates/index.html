@@ -103,11 +103,6 @@
                     <img src="{{ url_for('static', filename=price_hist_path.split('/')[-1]) }}" alt="Price Histogram">
                 </div>
             {% endif %}
-            {% if price_size_scatter_path %}
-                <div class="chart">
-                    <img src="{{ url_for('static', filename=price_size_scatter_path.split('/')[-1]) }}" alt="Price vs Size Scatter Plot">
-                </div>
-            {% endif %}
             {% if region_timeline_path %}
                 <div class="chart">
                     <img src="{{ url_for('static', filename=region_timeline_path.split('/')[-1]) }}" alt="Region Price Timeline Chart">

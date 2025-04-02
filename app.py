@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 from collections import Counter
 from functools import lru_cache
+import sys
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -17,7 +18,11 @@ from folium.plugins import HeatMap
 
 app = Flask(__name__)
 
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(
+    level=logging.INFO,
+    stream=sys.stdout,
+    format='%(levelname)s:%(name)s:%(message)s'
+)
 
 REGION_POSTCODE_LIST = {
     "Central Coast": ["2250", "2251", "2256", "2257", "2258", "2259", "2260", "2261", "2262", "2263"],
@@ -56,6 +61,7 @@ def load_property_data():
 
     for zip_file in sorted(zip_files, reverse=True):
         if "2025.zip" not in zip_file:
+            logging.info(f"Skipping {zip_file} as we're focusing on 2025.zip")
             continue
         
         try:
@@ -94,7 +100,6 @@ def load_property_data():
                                                 })
                                                 df["Unit Number"] = df["Property ID"].map(unit_numbers).fillna("")
                                                 df["Property Type"] = df["Property Type"].replace("RESIDENCE", "HOUSE")
-                                                # Check Street for unit pattern (e.g., "1/123")
                                                 df["Property Type"] = df.apply(
                                                     lambda row: "UNIT" if (
                                                         row["Property Type"] == "HOUSE" and 
@@ -124,12 +129,12 @@ def load_property_data():
         logging.info("Street values for first 200 records:")
         for i, street in enumerate(result_df["Street"].head(200)):
             logging.info(f"Record {i}: {street}")
+        logging.info(f"Loaded {len(result_df)} records into DataFrame at startup.")
 
     return result_df
 
 # Cache DataFrame globally
 df = load_property_data()
-logging.info(f"Loaded {len(df)} records into DataFrame at startup.")
 
 def generate_region_median_chart():
     os.makedirs('static', exist_ok=True)
@@ -142,10 +147,10 @@ def generate_region_median_chart():
         return None
     regions, prices = zip(*sorted(median_prices.items(), key=lambda x: x[1]))
     plt.figure(figsize=(10, 6))
-    plt.barh(regions, prices)
+    plt.barh(regions, prices)  # Reversed: Regions on y-axis, Prices on x-axis
     plt.title("Median Price by Region")
-    plt.xlabel("Median Price ($)")
-    plt.ylabel("Region")
+    plt.xlabel("Median Price ($)")  # Swapped to x-axis
+    plt.ylabel("Region")  # Swapped to y-axis
     plt.tight_layout()
     chart_path = os.path.join(app.static_folder, "region_median_prices.png")
     plt.savefig(chart_path)
@@ -204,7 +209,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
         median_chart_path = os.path.join(app.static_folder, f"median_house_price_{chart_prefix}.png")
         plt.savefig(median_chart_path)
         plt.close()
-        return median_chart_path, None, None, None, None, None
+        return median_chart_path, None, None, None, None
     plt.figure(figsize=(10, 6))
     filtered_df.groupby(filtered_df["Settlement Date"].dt.to_period("M"))["Price"].median().plot()
     plt.title("Median House Price Over Time")
@@ -220,21 +225,6 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
     plt.ylabel("Frequency")
     price_hist_path = os.path.join(app.static_folder, f"price_hist_{chart_prefix}.png")
     plt.savefig(price_hist_path)
-    plt.close()
-    plt.figure(figsize=(10, 6))
-    if "Block Size" in filtered_df.columns and not filtered_df["Block Size"].isna().all():
-        valid_data = filtered_df.dropna(subset=["Block Size", "Price"])
-        if not valid_data.empty:
-            plt.scatter(valid_data["Block Size"], valid_data["Price"], alpha=0.5)
-        else:
-            plt.text(0.5, 0.5, "No Valid Block Size Data", fontsize=12, ha='center', va='center')
-    else:
-        plt.text(0.5, 0.5, "Block Size Data Not Available", fontsize=12, ha='center', va='center')
-    plt.title("Price vs Block Size")
-    plt.xlabel("Block Size (sqm)")
-    plt.ylabel("Price ($)")
-    price_size_scatter_path = os.path.join(app.static_folder, f"price_size_scatter_{chart_prefix}.png")
-    plt.savefig(price_size_scatter_path)
     plt.close()
     plt.figure(figsize=(10, 6))
     if region:
@@ -254,16 +244,17 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
     postcode_timeline_path = os.path.join(app.static_folder, f"postcode_timeline_{chart_prefix}.png")
     plt.savefig(postcode_timeline_path)
     plt.close()
-    plt.figure(figsize=(10, 6))
-    if suburb:
+    suburb_timeline_path = None
+    if suburb:  # Only generate if suburb is selected
+        plt.figure(figsize=(10, 6))
         df[df["Suburb"] == suburb].groupby("Settlement Date")["Price"].median().plot()
-    plt.title(f"Suburb Price Timeline: {suburb or 'All'}")
-    plt.xlabel("Settlement Date")
-    plt.ylabel("Price ($)")
-    suburb_timeline_path = os.path.join(app.static_folder, f"suburb_timeline_{chart_prefix}.png")
-    plt.savefig(suburb_timeline_path)
-    plt.close()
-    return median_chart_path, price_hist_path, price_size_scatter_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path
+        plt.title(f"Suburb Price Timeline: {suburb}")
+        plt.xlabel("Settlement Date")
+        plt.ylabel("Price ($)")
+        suburb_timeline_path = os.path.join(app.static_folder, f"suburb_timeline_{chart_prefix}.png")
+        plt.savefig(suburb_timeline_path)
+        plt.close()
+    return median_chart_path, price_hist_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path
 
 @app.route('/', methods=["GET", "POST"])
 def index():
@@ -284,7 +275,7 @@ def index():
         filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
     
     heatmap_path = generate_heatmap_cached(selected_region, selected_postcode, selected_suburb)
-    median_chart_path, price_hist_path, price_size_scatter_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path = generate_charts_cached(selected_region, selected_postcode, selected_suburb)
+    median_chart_path, price_hist_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path = generate_charts_cached(selected_region, selected_postcode, selected_suburb)
     region_median_chart_path = generate_region_median_chart() if not (selected_region or selected_postcode or selected_suburb) else None
     
     properties = None
@@ -332,7 +323,6 @@ def index():
                            heatmap_path=heatmap_path,
                            median_chart_path=median_chart_path,
                            price_hist_path=price_hist_path,
-                           price_size_scatter_path=price_size_scatter_path,
                            region_timeline_path=region_timeline_path,
                            postcode_timeline_path=postcode_timeline_path,
                            suburb_timeline_path=suburb_timeline_path,
