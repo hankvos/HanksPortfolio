@@ -50,7 +50,7 @@ def load_property_data():
         logging.error("No ZIP files found in the directory.")
         return pd.DataFrame()
 
-    result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type"])
+    result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street"])
     
     TARGET_2024_ZIPS = [
         "20241007.zip", "20241014.zip", "20241021.zip", "20241028.zip",
@@ -58,8 +58,11 @@ def load_property_data():
         "20241202.zip", "20241209.zip", "20241216.zip", "20241223.zip", "20241230.zip"
     ]
     
-    first_file = True
     for zip_file in sorted(zip_files, reverse=True):
+        if "2025.zip" not in zip_file:  # Skip non-2025 files for this test
+            logging.info(f"Skipping {zip_file} as we're focusing on 2025.zip")
+            continue
+        
         try:
             with zipfile.ZipFile(zip_file, 'r') as outer_zip:
                 nested_zips = [f for f in outer_zip.namelist() if f.endswith('.zip')]
@@ -69,14 +72,7 @@ def load_property_data():
                     logging.warning(f"No nested ZIP files found in {zip_file}")
                     continue
                 
-                if "2025.zip" in zip_file:
-                    target_zips = nested_zips
-                elif "2024.zip" in zip_file:
-                    target_zips = [z for z in nested_zips if z in TARGET_2024_ZIPS]
-                else:
-                    logging.info(f"Skipping unexpected ZIP file: {zip_file}")
-                    continue
-                
+                target_zips = nested_zips  # For 2025.zip, process all nested zips
                 target_zips.sort(reverse=True)
                 logging.info(f"Target nested ZIPs for {zip_file}: {target_zips}")
                 
@@ -94,13 +90,6 @@ def load_property_data():
                                 for dat_file in dat_files:
                                     try:
                                         with nested_zip.open(dat_file) as f:
-                                            # Read raw lines for debugging first file
-                                            if first_file:
-                                                lines = f.read().decode('latin1').splitlines()[:5]
-                                                logging.info(f"First 5 lines of {dat_file}: {lines}")
-                                                first_file = False
-                                            
-                                            # Parse as CSV
                                             df = pd.read_csv(
                                                 io.BytesIO(f.read()),
                                                 sep=';',
@@ -108,25 +97,28 @@ def load_property_data():
                                                 encoding='latin1',
                                                 on_bad_lines='skip'
                                             )
-                                            # Strip whitespace from first column
                                             df[0] = df[0].str.strip()
-                                            # Log unique first-column values if no 'B'
                                             b_records = df[df[0] == 'B']
                                             if b_records.empty:
                                                 unique_first = df[0].unique().tolist()
                                                 logging.warning(f"No 'B' records in {dat_file}. Unique first columns: {unique_first}")
                                                 continue
                                             
-                                            # Map fields
+                                            # Log the first 3 B records (or fewer if less exist)
+                                            num_to_log = min(3, len(b_records))
+                                            for i in range(num_to_log):
+                                                record = b_records.iloc[i].tolist()
+                                                logging.info(f"{dat_file} - B record {i+1}: {record}")
+                                            
+                                            # Process with corrected mapping
                                             df = b_records.rename(columns={
-                                                9: "Street",
-                                                10: "Suburb",
-                                                11: "Postcode",
-                                                13: "Settlement Date",
-                                                14: "Price",
+                                                8: "Street",
+                                                9: "Suburb",
+                                                10: "Postcode",
+                                                14: "Settlement Date",
+                                                15: "Price",
                                                 18: "Property Type"
                                             })
-                                            
                                             df = df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street"]]
                                             
                                             df["Postcode"] = df["Postcode"].astype(str)
@@ -134,7 +126,6 @@ def load_property_data():
                                             df["Settlement Date"] = pd.to_datetime(df["Settlement Date"], format='%Y%m%d', errors='coerce')
                                             
                                             df = df[df["Postcode"].isin(ALLOWED_POSTCODES)]
-                                            
                                             df = df[
                                                 ((df['Settlement Date'].dt.year == 2024) & (df['Settlement Date'].dt.month >= 10)) |
                                                 ((df['Settlement Date'].dt.year == 2025) & (df['Settlement Date'].dt.month <= 3))
@@ -152,7 +143,7 @@ def load_property_data():
         logging.error("No valid DAT files processed or no data matches filters.")
         return pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type"])
     
-    logging.info(f"Processed {len(result_df)} records from {len(TARGET_2024_ZIPS) + 12} nested ZIPs")
+    logging.info(f"Processed {len(result_df)} records from 2025.zip")
     logging.info(f"Unique postcodes in loaded data: {result_df['Postcode'].unique().tolist()}")
     
     return result_df
