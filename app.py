@@ -52,12 +52,6 @@ def load_property_data():
 
     result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street"])
     
-    TARGET_2024_ZIPS = [
-        "20241007.zip", "20241014.zip", "20241021.zip", "20241028.zip",
-        "20241104.zip", "20241111.zip", "20241118.zip", "20241125.zip",
-        "20241202.zip", "20241209.zip", "20241216.zip", "20241223.zip", "20241230.zip"
-    ]
-    
     for zip_file in sorted(zip_files, reverse=True):
         if "2025.zip" not in zip_file:
             logging.info(f"Skipping {zip_file} as we're focusing on 2025.zip")
@@ -99,26 +93,30 @@ def load_property_data():
                                             for i in range(num_to_log):
                                                 logging.info(f"{dat_file} - Line {i+1}: {lines[i]}")
                                             
-                                            # Parse with pandas
-                                            df = pd.read_csv(
-                                                io.BytesIO('\n'.join(lines).encode('latin1')),
-                                                sep=';',
-                                                header=None,
-                                                encoding='latin1',
-                                                on_bad_lines='skip'
-                                            )
+                                            # Parse manually into a list of lists
+                                            parsed_rows = []
+                                            for line in lines:
+                                                try:
+                                                    row = line.split(';')
+                                                    parsed_rows.append(row)
+                                                except Exception as e:
+                                                    logging.warning(f"{dat_file} - Failed to split line: {line}, Error: {e}")
+                                            
+                                            # Convert to DataFrame
+                                            df = pd.DataFrame(parsed_rows)
                                             logging.info(f"{dat_file} - Parsed {len(df)} rows")
                                             
                                             # Clean first column and count record types
-                                            df[0] = df[0].str.strip()
-                                            record_counts = Counter(df[0])
-                                            logging.info(f"{dat_file} - Record type counts: {dict(record_counts)}")
-                                            
-                                            # Log sample of parsed rows (up to 3)
-                                            num_to_sample = min(3, len(df))
-                                            for i in range(num_to_sample):
-                                                row = df.iloc[i].tolist()
-                                                logging.info(f"{dat_file} - Parsed row {i+1}: {row}")
+                                            if not df.empty:
+                                                df[0] = df[0].str.strip()
+                                                record_counts = Counter(df[0])
+                                                logging.info(f"{dat_file} - Record type counts: {dict(record_counts)}")
+                                                
+                                                # Log sample of parsed rows (up to 3)
+                                                num_to_sample = min(3, len(df))
+                                                for i in range(num_to_sample):
+                                                    row = df.iloc[i].tolist()
+                                                    logging.info(f"{dat_file} - Parsed row {i+1}: {row}")
                                             
                                             # Filter for B records
                                             b_records = df[df[0] == 'B']
