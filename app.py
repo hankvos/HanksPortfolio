@@ -55,7 +55,7 @@ def load_property_data():
         logging.error("No ZIP files found in the directory.")
         return pd.DataFrame()
 
-    result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "Block Size", "Unit Number"])
+    result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"])
     raw_property_types = Counter()
     allowed_types = {"RESIDENCE", "COMMERCIAL", "FARM", "VACANT LAND"}
 
@@ -89,8 +89,8 @@ def load_property_data():
                                             df = pd.DataFrame(parsed_rows)
                                             if not df.empty:
                                                 df = df.rename(columns={
-                                                    7: "House Number",  # New: Field 7
-                                                    8: "Street",
+                                                    7: "House Number",
+                                                    8: "StreetOnly",  # Field 8 renamed for sorting
                                                     9: "Suburb",
                                                     10: "Postcode",
                                                     11: "Block Size",
@@ -100,7 +100,7 @@ def load_property_data():
                                                     2: "Property ID"
                                                 })
                                                 df["Unit Number"] = df["Property ID"].map(unit_numbers).fillna("")
-                                                df["Street"] = df["House Number"] + " " + df["Street"]  # Combine House Number with Street
+                                                df["Street"] = df["House Number"] + " " + df["StreetOnly"]  # Full address
                                                 df["Property Type"] = df["Property Type"].replace("RESIDENCE", "HOUSE")
                                                 df["Property Type"] = df.apply(
                                                     lambda row: "UNIT" if (
@@ -109,14 +109,12 @@ def load_property_data():
                                                     ) else row["Property Type"],
                                                     axis=1
                                                 )
-                                                df = df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "Block Size", "Unit Number"]]
+                                                df = df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"]]
                                                 df["Postcode"] = df["Postcode"].astype(str)
                                                 df["Price"] = pd.to_numeric(df["Price"], errors='coerce', downcast='float')
                                                 df["Block Size"] = pd.to_numeric(df["Block Size"], errors='coerce', downcast='float')
                                                 df["Settlement Date"] = pd.to_datetime(df["Settlement Date"], format='%Y%m%d', errors='coerce')
-                                                # Filter out dates before 2024
                                                 df = df[df["Settlement Date"].dt.year >= 2024]
-                                                # Format Settlement Date as DD/MM/YYYY
                                                 df["Settlement Date"] = df["Settlement Date"].dt.strftime('%d/%m/%Y')
                                                 df = df[df["Postcode"].isin(ALLOWED_POSTCODES)]
                                                 result_df = pd.concat([result_df, df], ignore_index=True)
@@ -153,13 +151,48 @@ def generate_region_median_chart():
         return None
     regions, prices = zip(*sorted(median_prices.items(), key=lambda x: x[1]))
     plt.figure(figsize=(10, 6))
-    plt.bar(regions, prices)  # Vertical bars: Regions on x-axis, Prices on y-axis
+    plt.bar(regions, prices)
     plt.title("Median Price by Region")
     plt.xlabel("Region")
     plt.ylabel("Median Price ($)")
     plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
     chart_path = os.path.join(app.static_folder, "region_median_prices.png")
+    plt.savefig(chart_path)
+    plt.close()
+    return chart_path
+
+def generate_postcode_median_chart(region=None, postcode=None):
+    os.makedirs('static', exist_ok=True)
+    median_prices = {}
+    if region:
+        postcodes = REGION_POSTCODE_LIST.get(region, [])
+        filtered_df = df[df["Postcode"].isin(postcodes)]
+        chart_key = f"region_{region}"
+    elif postcode:
+        filtered_df = df[df["Postcode"] == postcode]
+        postcodes = [postcode]
+        chart_key = f"postcode_{postcode}"
+    else:
+        return None
+    
+    for pc in postcodes:
+        pc_df = filtered_df[filtered_df["Postcode"] == pc]
+        if not pc_df.empty:
+            median_prices[pc] = pc_df["Price"].median()
+    
+    if not median_prices:
+        return None
+    
+    pcs, prices = zip(*sorted(median_prices.items(), key=lambda x: x[1]))
+    plt.figure(figsize=(10, 6))
+    plt.bar(pcs, prices)
+    plt.title(f"Median Price by Postcode ({region or postcode})")
+    plt.xlabel("Postcode")
+    plt.ylabel("Median Price ($)")
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    chart_path = os.path.join(app.static_folder, f"postcode_median_prices_{chart_key}.png")
     plt.savefig(chart_path)
     plt.close()
     return chart_path
@@ -218,7 +251,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
         plt.close()
         return median_chart_path, None, None, None, None
     plt.figure(figsize=(10, 6))
-    filtered_df["Settlement Date"] = pd.to_datetime(filtered_df["Settlement Date"], format='%d/%m/%Y')  # Convert back for plotting
+    filtered_df["Settlement Date"] = pd.to_datetime(filtered_df["Settlement Date"], format='%d/%m/%Y')
     filtered_df.groupby(filtered_df["Settlement Date"].dt.to_period("M"))["Price"].median().plot()
     plt.title("Median House Price Over Time")
     plt.xlabel("Settlement Date")
@@ -281,13 +314,18 @@ def index():
     if selected_postcode:
         filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
     if selected_suburb:
-        filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
+        filtered_df = filtered_df[filtered_df["Suburb"] == suburb]
     if selected_property_type != "ALL":
         filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
     
     heatmap_path = generate_heatmap_cached(selected_region, selected_postcode, selected_suburb)
     median_chart_path, price_hist_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path = generate_charts_cached(selected_region, selected_postcode, selected_suburb)
     region_median_chart_path = generate_region_median_chart() if not (selected_region or selected_postcode or selected_suburb) else None
+    postcode_median_chart_path = None
+    if selected_region and not selected_postcode:
+        postcode_median_chart_path = generate_postcode_median_chart(region=selected_region)
+    elif selected_postcode:
+        postcode_median_chart_path = generate_postcode_median_chart(postcode=selected_postcode)
     
     properties = None
     if selected_region or selected_postcode or selected_suburb:
@@ -295,7 +333,15 @@ def index():
         filtered_df["Map Link"] = filtered_df["Address"].apply(
             lambda addr: f"https://www.google.com/maps/place/{addr.replace(' ', '+')}"
         )
-        properties = filtered_df.sort_values(by=sort_by)[["Address", "Price", "Settlement Date", "Block Size", "Map Link"]].to_dict(orient="records")
+        # Sorting logic
+        if sort_by == "Address":
+            properties = filtered_df.sort_values(by="StreetOnly")[["Address", "Price", "Settlement Date", "Block Size", "Map Link"]].to_dict(orient="records")
+        elif sort_by == "Settlement Date":
+            filtered_df["Settlement Date"] = pd.to_datetime(filtered_df["Settlement Date"], format='%d/%m/%Y')
+            properties = filtered_df.sort_values(by="Settlement Date")[["Address", "Price", "Settlement Date", "Block Size", "Map Link"]]
+            properties = [{k: v.strftime('%d/%m/%Y') if k == "Settlement Date" else v for k, v in prop.items()} for prop in properties.to_dict(orient="records")]
+        else:  # Price
+            properties = filtered_df.sort_values(by="Price")[["Address", "Price", "Settlement Date", "Block Size", "Map Link"]].to_dict(orient="records")
     
     if filtered_df.empty and (selected_region or selected_postcode or selected_suburb):
         return render_template("index.html", 
@@ -306,6 +352,7 @@ def index():
                                heatmap_path=heatmap_path, 
                                median_chart_path=median_chart_path,
                                region_median_chart_path=region_median_chart_path,
+                               postcode_median_chart_path=postcode_median_chart_path,
                                data_source="NSW Valuer General Data", 
                                error="No properties found for the selected filters.")
     
@@ -338,6 +385,7 @@ def index():
                            postcode_timeline_path=postcode_timeline_path,
                            suburb_timeline_path=suburb_timeline_path,
                            region_median_chart_path=region_median_chart_path,
+                           postcode_median_chart_path=postcode_median_chart_path,
                            data_source="NSW Valuer General Data")
 
 @app.route('/get_postcodes')
