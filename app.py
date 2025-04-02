@@ -51,7 +51,8 @@ def load_property_data():
         logging.error("No ZIP files found in the directory.")
         return pd.DataFrame()
 
-    result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "Block Size"])
+    result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "Block Size", "Unit Number"])
+    raw_property_types = Counter()
     
     for zip_file in sorted(zip_files, reverse=True):
         if "2025.zip" not in zip_file:
@@ -63,24 +64,12 @@ def load_property_data():
                 nested_zips = [f for f in outer_zip.namelist() if f.endswith('.zip')]
                 logging.info(f"Processing {zip_file} with {len(nested_zips)} nested ZIPs")
                 
-                if not nested_zips:
-                    logging.warning(f"No nested ZIP files found in {zip_file}")
-                    continue
-                
-                target_zips = nested_zips
-                target_zips.sort(reverse=True)
-                logging.info(f"Target nested ZIPs for {zip_file}: {target_zips}")
-                
-                for nested_zip_name in target_zips:
+                for nested_zip_name in sorted(nested_zips, reverse=True):
                     try:
                         with outer_zip.open(nested_zip_name) as nested_zip_file:
                             with zipfile.ZipFile(io.BytesIO(nested_zip_file.read())) as nested_zip:
                                 dat_files = [f for f in nested_zip.namelist() if f.endswith('.DAT')]
                                 logging.info(f"Found {len(dat_files)} DAT files in {nested_zip_name}")
-                                
-                                if not dat_files:
-                                    logging.warning(f"No DAT files found in {nested_zip_name}")
-                                    continue
                                 
                                 for dat_file in dat_files:
                                     try:
@@ -89,10 +78,15 @@ def load_property_data():
                                             logging.info(f"{dat_file} - Total lines: {len(lines)}")
                                             
                                             parsed_rows = []
+                                            unit_numbers = {}
                                             for line in lines:
                                                 try:
                                                     row = line.split(';')
                                                     parsed_rows.append(row)
+                                                    if row[0] == 'C' and len(row) > 5 and row[5]:
+                                                        unit_numbers[row[2]] = row[5]  # Property ID to unit number
+                                                    if row[0] == 'B' and len(row) > 18:
+                                                        raw_property_types[row[18]] += 1
                                                 except Exception as e:
                                                     logging.warning(f"{dat_file} - Failed to split line: {line}, Error: {e}")
                                             
@@ -110,8 +104,17 @@ def load_property_data():
                                                     11: "Block Size",
                                                     14: "Settlement Date",
                                                     15: "Price",
-                                                    18: "Property Type"
+                                                    18: "Property Type",
+                                                    2: "Property ID"
                                                 })
+                                                df["Unit Number"] = df["Property ID"].map(unit_numbers).fillna("")
+                                                
+                                                df["Property Type"] = df["Property Type"].replace("RESIDENCE", "HOUSE")
+                                                df["Property Type"] = df.apply(
+                                                    lambda row: "UNIT" if row["Unit Number"] and row["Property Type"] == "HOUSE" else row["Property Type"],
+                                                    axis=1
+                                                )
+                                                
                                                 df = df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "Block Size"]]
                                                 
                                                 df["Postcode"] = df["Postcode"].astype(str)
@@ -135,14 +138,39 @@ def load_property_data():
     
     if result_df.empty:
         logging.error("No valid DAT files processed or no data matches filters.")
-        return pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "Block Size"])
+    else:
+        logging.info(f"Processed {len(result_df)} records from 2025.zip")
+        logging.info(f"Raw Property Type counts (field 18): {dict(raw_property_types)}")
     
-    logging.info(f"Processed {len(result_df)} records from 2025.zip")
     return result_df
 
 # Cache DataFrame globally
 df = load_property_data()
 logging.info(f"Loaded {len(df)} records into DataFrame at startup.")
+
+def generate_region_median_chart():
+    os.makedirs('static', exist_ok=True)
+    median_prices = {}
+    for region, postcodes in REGION_POSTCODE_LIST.items():
+        region_df = df[df["Postcode"].isin(postcodes)]
+        if not region_df.empty:
+            median_prices[region] = region_df["Price"].median()
+    
+    if not median_prices:
+        return None
+    
+    regions, prices = zip(*sorted(median_prices.items(), key=lambda x: x[1]))
+    plt.figure(figsize=(10, 6))
+    plt.barh(regions, prices)
+    plt.title("Median Price by Region")
+    plt.xlabel("Median Price ($)")
+    plt.ylabel("Region")
+    plt.tight_layout()
+    chart_path = os.path.join(app.static_folder, "region_median_prices.png")
+    plt.savefig(chart_path)
+    plt.close()
+    logging.info(f"Generated region median price chart at {chart_path}")
+    return chart_path
 
 @lru_cache(maxsize=32)
 def generate_heatmap_cached(region=None, postcode=None, suburb=None):
@@ -284,7 +312,7 @@ def index():
     selected_region = request.form.get("region", None) if request.method == "POST" else None
     selected_postcode = request.form.get("postcode", None) if request.method == "POST" else None
     selected_suburb = request.form.get("suburb", None) if request.method == "POST" else None
-    selected_property_type = request.form.get("property_type", "ALL") if request.method == "POST" else "ALL"
+    selected_property_type = request.form.get("property_type", "HOUSE") if request.method == "POST" else "HOUSE"
     sort_by = request.form.get("sort_by", "Settlement Date") if request.method == "POST" else "Settlement Date"
     
     filtered_df = df.copy()
@@ -301,35 +329,42 @@ def index():
     
     heatmap_path = generate_heatmap_cached(selected_region, selected_postcode, selected_suburb)
     median_chart_path, price_hist_path, price_size_scatter_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path = generate_charts_cached(selected_region, selected_postcode, selected_suburb)
+    region_median_chart_path = generate_region_median_chart() if not (selected_region or selected_postcode or selected_suburb) else None
     
-    if filtered_df.empty:
+    properties = None
+    if selected_region or selected_postcode or selected_suburb:
+        filtered_df["Address"] = filtered_df["Street"] + ", " + filtered_df["Suburb"] + " NSW " + filtered_df["Postcode"]
+        filtered_df["Map Link"] = filtered_df["Address"].apply(
+            lambda addr: f"https://www.google.com/maps/place/{addr.replace(' ', '+')}"
+        )
+        properties = filtered_df.sort_values(by=sort_by)[["Address", "Price", "Settlement Date", "Map Link"]].to_dict(orient="records")
+    
+    if filtered_df.empty and (selected_region or selected_postcode or selected_suburb):
         return render_template("index.html", 
                                regions=REGION_POSTCODE_LIST.keys(), 
                                postcodes=[], 
                                suburbs=[], 
-                               property_types=["ALL"] + sorted(df["Property Type"].unique().tolist()), 
+                               property_types=["ALL", "HOUSE", "UNIT", "COMMERCIAL", "SHOP"], 
                                heatmap_path=heatmap_path, 
                                median_chart_path=median_chart_path,
+                               region_median_chart_path=region_median_chart_path,
                                data_source="NSW Valuer General Data", 
                                error="No properties found for the selected filters.")
     
-    filtered_df["Address"] = filtered_df["Street"] + ", " + filtered_df["Suburb"]
-    properties = filtered_df.sort_values(by=sort_by)[["Address", "Price", "Settlement Date"]].to_dict(orient="records")
-    avg_price = filtered_df["Price"].mean()
+    unique_postcodes = sorted(filtered_df["Postcode"].unique().tolist()) if (selected_region or selected_postcode) else []
+    unique_suburbs = sorted(filtered_df["Suburb"].unique().tolist()) if (selected_region or selected_postcode or selected_suburb) else []
+    avg_price = filtered_df["Price"].mean() if not filtered_df.empty else None
     stats_dict = {
         "mean": filtered_df["Price"].mean(),
         "median": filtered_df["Price"].median(),
         "std": filtered_df["Price"].std()
-    }
-    
-    unique_postcodes = sorted(filtered_df["Postcode"].unique().tolist())
-    unique_suburbs = sorted(filtered_df["Suburb"].unique().tolist())
+    } if not filtered_df.empty else {}
     
     return render_template("index.html", 
                            regions=REGION_POSTCODE_LIST.keys(),
                            postcodes=unique_postcodes,
                            suburbs=unique_suburbs,
-                           property_types=["ALL"] + sorted(df["Property Type"].unique().tolist()),
+                           property_types=["ALL", "HOUSE", "UNIT", "COMMERCIAL", "SHOP"],
                            properties=properties,
                            avg_price=avg_price,
                            stats=stats_dict,
@@ -345,6 +380,7 @@ def index():
                            region_timeline_path=region_timeline_path,
                            postcode_timeline_path=postcode_timeline_path,
                            suburb_timeline_path=suburb_timeline_path,
+                           region_median_chart_path=region_median_chart_path,
                            data_source="NSW Valuer General Data")
 
 @app.route('/get_postcodes')

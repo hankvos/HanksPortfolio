@@ -78,7 +78,6 @@
                 <select id="sort_by" name="sort_by">
                     <option value="Address" {% if sort_by == "Address" %}selected{% endif %}>Address</option>
                     <option value="Price" {% if sort_by == "Price" %}selected{% endif %}>Price</option>
-                    <option value="Block Size" {% if sort_by == "Block Size" %}selected{% endif %}>Block Size</option>
                     <option value="Settlement Date" {% if sort_by == "Settlement Date" %}selected{% endif %}>Settlement Date</option>
                 </select>
 
@@ -89,6 +88,11 @@
             {% endif %}
         </div>
         <div class="right-column">
+            {% if region_median_chart_path %}
+                <div class="chart" style="position: absolute; top: 10px; right: 10px; width: 300px;">
+                    <img src="{{ url_for('static', filename=region_median_chart_path.split('/')[-1]) }}" alt="Median Price by Region">
+                </div>
+            {% endif %}
             {% if median_chart_path %}
                 <div class="chart">
                     <img src="{{ url_for('static', filename=median_chart_path.split('/')[-1]) }}" alt="Median House Price Chart">
@@ -130,7 +134,6 @@
                     <tr>
                         <th>Address</th>
                         <th>Price</th>
-                        <th>Size</th>
                         <th>Settlement Date</th>
                         <th>Map</th>
                     </tr>
@@ -138,14 +141,13 @@
                         <tr>
                             <td>{{ prop["Address"] }}</td>
                             <td>${{ "{:,.0f}".format(prop["Price"]) }}</td>
-                            <td>{{ prop["Size"] }}</td>
                             <td>{{ prop["Settlement Date"] }}</td>
                             <td><a href="{{ prop['Map Link'] }}" target="_blank">View</a></td>
                         </tr>
                     {% endfor %}
                 </table>
             {% else %}
-                <p>No properties found for the selected filters.</p>
+                <p>Select a region, postcode, or suburb to view properties.</p>
             {% endif %}
         </div>
     </div>

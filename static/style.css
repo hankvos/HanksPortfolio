@@ -32,6 +32,7 @@ body {
 .right-column {
     flex: 2;
     min-width: 400px;
+    position: relative; /* Added to support absolute positioning of the median price chart */
 }
 
 h1 {
@@ -63,6 +64,7 @@ button {
 
 .chart img {
     max-width: 100%;
+    height: auto; /* Ensures responsiveness */
     margin: 20px 0;
 }
 
