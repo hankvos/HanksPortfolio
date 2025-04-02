@@ -90,7 +90,7 @@ def load_property_data():
                                             if not df.empty:
                                                 df = df.rename(columns={
                                                     7: "House Number",
-                                                    8: "StreetOnly",  # Field 8 renamed for sorting
+                                                    8: "StreetOnly",
                                                     9: "Suburb",
                                                     10: "Postcode",
                                                     11: "Block Size",
@@ -100,7 +100,7 @@ def load_property_data():
                                                     2: "Property ID"
                                                 })
                                                 df["Unit Number"] = df["Property ID"].map(unit_numbers).fillna("")
-                                                df["Street"] = df["House Number"] + " " + df["StreetOnly"]  # Full address
+                                                df["Street"] = df["House Number"] + " " + df["StreetOnly"]
                                                 df["Property Type"] = df["Property Type"].replace("RESIDENCE", "HOUSE")
                                                 df["Property Type"] = df.apply(
                                                     lambda row: "UNIT" if (
@@ -197,6 +197,31 @@ def generate_postcode_median_chart(region=None, postcode=None):
     plt.close()
     return chart_path
 
+def generate_suburb_median_chart(postcode):
+    os.makedirs('static', exist_ok=True)
+    filtered_df = df[df["Postcode"] == postcode]
+    median_prices = {}
+    for suburb in filtered_df["Suburb"].unique():
+        suburb_df = filtered_df[filtered_df["Suburb"] == suburb]
+        if not suburb_df.empty:
+            median_prices[suburb] = suburb_df["Price"].median()
+    
+    if not median_prices:
+        return None
+    
+    suburbs, prices = zip(*sorted(median_prices.items(), key=lambda x: x[1]))
+    plt.figure(figsize=(10, 6))
+    plt.bar(suburbs, prices)
+    plt.title(f"Median Price by Suburb (Postcode {postcode})")
+    plt.xlabel("Suburb")
+    plt.ylabel("Median Price ($)")
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    chart_path = os.path.join(app.static_folder, f"suburb_median_prices_{postcode}.png")
+    plt.savefig(chart_path)
+    plt.close()
+    return chart_path
+
 @lru_cache(maxsize=32)
 def generate_heatmap_cached(region=None, postcode=None, suburb=None):
     filtered_df = df.copy()
@@ -267,26 +292,28 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
     price_hist_path = os.path.join(app.static_folder, f"price_hist_{chart_prefix}.png")
     plt.savefig(price_hist_path)
     plt.close()
-    plt.figure(figsize=(10, 6))
-    if region:
+    region_timeline_path = None
+    if region:  # Only generate if region is selected
+        plt.figure(figsize=(10, 6))
         df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))]["Settlement Date"] = pd.to_datetime(df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))]["Settlement Date"], format='%d/%m/%Y')
         df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))].groupby("Settlement Date")["Price"].median().plot()
-    plt.title(f"Region Price Timeline: {region or 'All'}")
-    plt.xlabel("Settlement Date")
-    plt.ylabel("Price ($)")
-    region_timeline_path = os.path.join(app.static_folder, f"region_timeline_{chart_prefix}.png")
-    plt.savefig(region_timeline_path)
-    plt.close()
-    plt.figure(figsize=(10, 6))
-    if postcode:
+        plt.title(f"Region Price Timeline: {region}")
+        plt.xlabel("Settlement Date")
+        plt.ylabel("Price ($)")
+        region_timeline_path = os.path.join(app.static_folder, f"region_timeline_{chart_prefix}.png")
+        plt.savefig(region_timeline_path)
+        plt.close()
+    postcode_timeline_path = None
+    if postcode:  # Only generate if postcode is selected
+        plt.figure(figsize=(10, 6))
         df[df["Postcode"] == postcode]["Settlement Date"] = pd.to_datetime(df[df["Postcode"] == postcode]["Settlement Date"], format='%d/%m/%Y')
         df[df["Postcode"] == postcode].groupby("Settlement Date")["Price"].median().plot()
-    plt.title(f"Postcode Price Timeline: {postcode or 'All'}")
-    plt.xlabel("Settlement Date")
-    plt.ylabel("Price ($)")
-    postcode_timeline_path = os.path.join(app.static_folder, f"postcode_timeline_{chart_prefix}.png")
-    plt.savefig(postcode_timeline_path)
-    plt.close()
+        plt.title(f"Postcode Price Timeline: {postcode}")
+        plt.xlabel("Settlement Date")
+        plt.ylabel("Price ($)")
+        postcode_timeline_path = os.path.join(app.static_folder, f"postcode_timeline_{chart_prefix}.png")
+        plt.savefig(postcode_timeline_path)
+        plt.close()
     suburb_timeline_path = None
     if suburb:
         plt.figure(figsize=(10, 6))
@@ -314,7 +341,7 @@ def index():
     if selected_postcode:
         filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
     if selected_suburb:
-        filtered_df = filtered_df[filtered_df["Suburb"] == suburb]
+        filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
     if selected_property_type != "ALL":
         filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
     
@@ -322,10 +349,12 @@ def index():
     median_chart_path, price_hist_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path = generate_charts_cached(selected_region, selected_postcode, selected_suburb)
     region_median_chart_path = generate_region_median_chart() if not (selected_region or selected_postcode or selected_suburb) else None
     postcode_median_chart_path = None
+    suburb_median_chart_path = None
     if selected_region and not selected_postcode:
         postcode_median_chart_path = generate_postcode_median_chart(region=selected_region)
     elif selected_postcode:
         postcode_median_chart_path = generate_postcode_median_chart(postcode=selected_postcode)
+        suburb_median_chart_path = generate_suburb_median_chart(selected_postcode)
     
     properties = None
     if selected_region or selected_postcode or selected_suburb:
@@ -333,7 +362,6 @@ def index():
         filtered_df["Map Link"] = filtered_df["Address"].apply(
             lambda addr: f"https://www.google.com/maps/place/{addr.replace(' ', '+')}"
         )
-        # Sorting logic
         if sort_by == "Address":
             properties = filtered_df.sort_values(by="StreetOnly")[["Address", "Price", "Settlement Date", "Block Size", "Map Link"]].to_dict(orient="records")
         elif sort_by == "Settlement Date":
@@ -353,6 +381,7 @@ def index():
                                median_chart_path=median_chart_path,
                                region_median_chart_path=region_median_chart_path,
                                postcode_median_chart_path=postcode_median_chart_path,
+                               suburb_median_chart_path=suburb_median_chart_path,
                                data_source="NSW Valuer General Data", 
                                error="No properties found for the selected filters.")
     
@@ -386,6 +415,7 @@ def index():
                            suburb_timeline_path=suburb_timeline_path,
                            region_median_chart_path=region_median_chart_path,
                            postcode_median_chart_path=postcode_median_chart_path,
+                           suburb_median_chart_path=suburb_median_chart_path,
                            data_source="NSW Valuer General Data")
 
 @app.route('/get_postcodes')

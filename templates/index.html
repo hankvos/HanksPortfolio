@@ -98,6 +98,11 @@
                     <img src="{{ url_for('static', filename=postcode_median_chart_path.split('/')[-1]) }}" alt="Median Price by Postcode">
                 </div>
             {% endif %}
+            {% if suburb_median_chart_path %}
+                <div class="chart">
+                    <img src="{{ url_for('static', filename=suburb_median_chart_path.split('/')[-1]) }}" alt="Median Price by Suburb">
+                </div>
+            {% endif %}
             {% if median_chart_path %}
                 <div class="chart">
                     <img src="{{ url_for('static', filename=median_chart_path.split('/')[-1]) }}" alt="Median House Price Chart">
