@@ -58,7 +58,8 @@ def load_property_data():
         "20241202.zip", "20241209.zip", "20241216.zip", "20241223.zip", "20241230.zip"
     ]
     
-    for zip_file in sorted(zip_files, reverse=True):  # 2025.zip first
+    first_file = True
+    for zip_file in sorted(zip_files, reverse=True):
         try:
             with zipfile.ZipFile(zip_file, 'r') as outer_zip:
                 nested_zips = [f for f in outer_zip.namelist() if f.endswith('.zip')]
@@ -93,7 +94,13 @@ def load_property_data():
                                 for dat_file in dat_files:
                                     try:
                                         with nested_zip.open(dat_file) as f:
-                                            # Read raw, no headers
+                                            # Read raw lines for debugging first file
+                                            if first_file:
+                                                lines = f.read().decode('latin1').splitlines()[:5]
+                                                logging.info(f"First 5 lines of {dat_file}: {lines}")
+                                                first_file = False
+                                            
+                                            # Parse as CSV
                                             df = pd.read_csv(
                                                 io.BytesIO(f.read()),
                                                 sep=';',
@@ -101,34 +108,33 @@ def load_property_data():
                                                 encoding='latin1',
                                                 on_bad_lines='skip'
                                             )
-                                            # Filter "B" records
-                                            df = df[df[0] == 'B']
-                                            if df.empty:
-                                                logging.warning(f"No 'B' records in {dat_file}")
+                                            # Strip whitespace from first column
+                                            df[0] = df[0].str.strip()
+                                            # Log unique first-column values if no 'B'
+                                            b_records = df[df[0] == 'B']
+                                            if b_records.empty:
+                                                unique_first = df[0].unique().tolist()
+                                                logging.warning(f"No 'B' records in {dat_file}. Unique first columns: {unique_first}")
                                                 continue
                                             
-                                            # Map fields by position
-                                            df = df.rename(columns={
-                                                9: "Street",      # HOPETOUN ST
-                                                10: "Suburb",     # KURRI KURRI
-                                                11: "Postcode",   # 2327
-                                                13: "Settlement Date",  # 20241116
-                                                14: "Price",      # 620000
-                                                18: "Property Type"  # RESIDENCE
+                                            # Map fields
+                                            df = b_records.rename(columns={
+                                                9: "Street",
+                                                10: "Suburb",
+                                                11: "Postcode",
+                                                13: "Settlement Date",
+                                                14: "Price",
+                                                18: "Property Type"
                                             })
                                             
-                                            # Select only needed columns
                                             df = df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street"]]
                                             
-                                            # Convert types
                                             df["Postcode"] = df["Postcode"].astype(str)
                                             df["Price"] = pd.to_numeric(df["Price"], errors='coerce', downcast='float')
                                             df["Settlement Date"] = pd.to_datetime(df["Settlement Date"], format='%Y%m%d', errors='coerce')
                                             
-                                            # Filter: 6 regions
                                             df = df[df["Postcode"].isin(ALLOWED_POSTCODES)]
                                             
-                                            # Filter: Oct 2024 - Mar 2025
                                             df = df[
                                                 ((df['Settlement Date'].dt.year == 2024) & (df['Settlement Date'].dt.month >= 10)) |
                                                 ((df['Settlement Date'].dt.year == 2025) & (df['Settlement Date'].dt.month <= 3))
@@ -335,7 +341,6 @@ def index():
         if pd.notna(row.get('Latitude')) and pd.notna(row.get('Longitude')) else "#", axis=1
     )
     
-    # Use Street + Suburb as Address since we have them
     filtered_df["Address"] = filtered_df["Street"] + ", " + filtered_df["Suburb"]
     properties = filtered_df.sort_values(by=sort_by)[["Address", "Price", "Settlement Date", "Map Link"]].to_dict(orient="records")
     avg_price = filtered_df["Price"].mean()
