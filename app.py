@@ -42,13 +42,6 @@ POSTCODE_COORDS = {
     "2480": [-28.81, 153.44], "2481": [-28.67, 153.58], "2482": [-28.71, 153.52], "2483": [-28.76, 153.47]
 }
 
-# Define 2024 nested ZIPs we want (Oct 7 - Dec 30)
-TARGET_2024_ZIPS = [
-    "20241007.zip", "20241014.zip", "20241021.zip", "20241028.zip",
-    "20241104.zip", "20241111.zip", "20241118.zip", "20241125.zip",
-    "20241202.zip", "20241209.zip", "20241216.zip", "20241223.zip", "20241230.zip"
-]
-
 def load_property_data():
     zip_files = [f for f in os.listdir() if f.endswith('.zip')]
     logging.info(f"Found {len(zip_files)} ZIP files in directory")
@@ -59,7 +52,12 @@ def load_property_data():
 
     result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type"])
     
-    # Process 2025.zip first, all 12 nested ZIPs
+    TARGET_2024_ZIPS = [
+        "20241007.zip", "20241014.zip", "20241021.zip", "20241028.zip",
+        "20241104.zip", "20241111.zip", "20241118.zip", "20241125.zip",
+        "20241202.zip", "20241209.zip", "20241216.zip", "20241223.zip", "20241230.zip"
+    ]
+    
     for zip_file in sorted(zip_files, reverse=True):  # 2025.zip first
         try:
             with zipfile.ZipFile(zip_file, 'r') as outer_zip:
@@ -70,16 +68,14 @@ def load_property_data():
                     logging.warning(f"No nested ZIP files found in {zip_file}")
                     continue
                 
-                # Filter nested ZIPs based on file name
                 if "2025.zip" in zip_file:
-                    target_zips = nested_zips  # Take all 2025 nested ZIPs
+                    target_zips = nested_zips
                 elif "2024.zip" in zip_file:
                     target_zips = [z for z in nested_zips if z in TARGET_2024_ZIPS]
                 else:
                     logging.info(f"Skipping unexpected ZIP file: {zip_file}")
                     continue
                 
-                # Sort for consistency (latest first)
                 target_zips.sort(reverse=True)
                 logging.info(f"Target nested ZIPs for {zip_file}: {target_zips}")
                 
@@ -97,23 +93,42 @@ def load_property_data():
                                 for dat_file in dat_files:
                                     try:
                                         with nested_zip.open(dat_file) as f:
+                                            # Read raw, no headers
                                             df = pd.read_csv(
                                                 io.BytesIO(f.read()),
+                                                sep=';',
+                                                header=None,
                                                 encoding='latin1',
-                                                on_bad_lines='skip',
-                                                dtype={
-                                                    "Postcode": "str",
-                                                    "Price": "float32",
-                                                    "Settlement Date": "str",
-                                                    "Suburb": "str",
-                                                    "Property Type": "str"
-                                                }
+                                                on_bad_lines='skip'
                                             )
-                                            # Filter early: 6 regions only
+                                            # Filter "B" records
+                                            df = df[df[0] == 'B']
+                                            if df.empty:
+                                                logging.warning(f"No 'B' records in {dat_file}")
+                                                continue
+                                            
+                                            # Map fields by position
+                                            df = df.rename(columns={
+                                                9: "Street",      # HOPETOUN ST
+                                                10: "Suburb",     # KURRI KURRI
+                                                11: "Postcode",   # 2327
+                                                13: "Settlement Date",  # 20241116
+                                                14: "Price",      # 620000
+                                                18: "Property Type"  # RESIDENCE
+                                            })
+                                            
+                                            # Select only needed columns
+                                            df = df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street"]]
+                                            
+                                            # Convert types
+                                            df["Postcode"] = df["Postcode"].astype(str)
+                                            df["Price"] = pd.to_numeric(df["Price"], errors='coerce', downcast='float')
+                                            df["Settlement Date"] = pd.to_datetime(df["Settlement Date"], format='%Y%m%d', errors='coerce')
+                                            
+                                            # Filter: 6 regions
                                             df = df[df["Postcode"].isin(ALLOWED_POSTCODES)]
                                             
-                                            # Date filter: Oct 2024 - Mar 2025
-                                            df['Settlement Date'] = pd.to_datetime(df['Settlement Date'], format='%Y%m%d', errors='coerce')
+                                            # Filter: Oct 2024 - Mar 2025
                                             df = df[
                                                 ((df['Settlement Date'].dt.year == 2024) & (df['Settlement Date'].dt.month >= 10)) |
                                                 ((df['Settlement Date'].dt.year == 2025) & (df['Settlement Date'].dt.month <= 3))
@@ -320,7 +335,9 @@ def index():
         if pd.notna(row.get('Latitude')) and pd.notna(row.get('Longitude')) else "#", axis=1
     )
     
-    properties = filtered_df.sort_values(by=sort_by)[["Address", "Price", "Size", "Settlement Date", "Map Link"]].to_dict(orient="records")
+    # Use Street + Suburb as Address since we have them
+    filtered_df["Address"] = filtered_df["Street"] + ", " + filtered_df["Suburb"]
+    properties = filtered_df.sort_values(by=sort_by)[["Address", "Price", "Settlement Date", "Map Link"]].to_dict(orient="records")
     avg_price = filtered_df["Price"].mean()
     stats_dict = {
         "mean": filtered_df["Price"].mean(),
