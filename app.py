@@ -246,46 +246,56 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
         if heat_data:
             HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
-    # Embed postcode coordinates as a JavaScript object
+    # Embed postcode coordinates and marker management JavaScript
     postcode_coords_js = "var postcodeCoords = {"
     for pc, (lat, lon) in POSTCODE_COORDS.items():
         postcode_coords_js += f"'{pc}': [{lat}, {lon}],"
     postcode_coords_js = postcode_coords_js.rstrip(',') + "};"
     
-    # JavaScript to add postcode markers
     js_code = f"""
     <script>
     {postcode_coords_js}
     var postcodeMarkers = {{}};
-    function addPostcodeMarkers(region, postcodes) {{
-        // Remove existing postcode markers
+    var regionMarkers = {{}};
+
+    function showRegionPostcodes(region) {{
+        // Hide all postcode markers
         for (var pc in postcodeMarkers) {{
             if (postcodeMarkers[pc]) {{
                 postcodeMarkers[pc].remove();
-                delete postcodeMarkers[pc];
             }}
         }}
-        // Add new postcode markers
-        postcodes.forEach(function(pc) {{
-            if (postcodeCoords[pc]) {{
-                var marker = L.marker(postcodeCoords[pc], {{
-                    icon: L.icon({{
-                        iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-                        iconSize: [25, 41],
-                        iconAnchor: [12, 41]
-                    }})
-                }}).addTo(map);
-                marker.bindPopup(
-                    '<a href="#" onclick="window.parent.document.getElementById(\\'postcode\\').value=\\'' + pc + '\\'; ' +
-                    'window.parent.document.forms[0].submit();">' + pc + '</a>'
-                );
-                postcodeMarkers[pc] = marker;
-            }}
-        }});
+        // Show markers for the selected region
+        var postcodes = {str(REGION_POSTCODE_LIST).replace("'", '"')}[region];
+        if (postcodes) {{
+            postcodes.forEach(function(pc) {{
+                if (postcodeCoords[pc] && !postcodeMarkers[pc]) {{
+                    var marker = L.marker(postcodeCoords[pc], {{
+                        icon: L.icon({{
+                            iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+                            iconSize: [25, 41],
+                            iconAnchor: [12, 41]
+                        }})
+                    }});
+                    marker.addTo(map).bindPopup(
+                        '<a href="#" onclick="window.parent.document.getElementById(\\'postcode\\').value=\\'' + pc + '\\'; ' +
+                        'window.parent.document.forms[0].submit();">' + pc + '</a>'
+                    );
+                    postcodeMarkers[pc] = marker;
+                }}
+            }});
+        }}
+    }}
+
+    // Initial load
+    var selectedRegion = '{region or ""}';
+    if (selectedRegion) {{
+        showRegionPostcodes(selectedRegion);
     }}
     </script>
     """
     
+    # Add region markers
     for i, (region_name, postcodes) in enumerate(REGION_POSTCODE_LIST.items()):
         coords = [POSTCODE_COORDS.get(pc) for pc in postcodes if pc in POSTCODE_COORDS]
         coords = [c for c in coords if c]
@@ -294,31 +304,33 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
             lon = sum(c[1] for c in coords) / len(coords)
             if region_name == "Hunter Valley excl Newcastle":
                 lon -= 0.5  # Move left by 0.5 degrees longitude
-            postcodes_json = str(list(postcodes)).replace("'", "\\'")  # Escape single quotes
-            # Updated popup: only the region link, auto-add markers on click
             popup_html = (
                 f'<a href="#" onclick="window.parent.document.getElementById(\'region\').value=\'{region_name}\'; ' +
-                f'addPostcodeMarkers(\'{region_name}\', {postcodes_json}); ' +
-                f'window.parent.updatePostcodes(); window.parent.document.forms[0].submit();">{region_name}</a>'
+                f'window.parent.document.getElementById(\'postcode\').value=\'\'; ' +  # Reset postcode
+                f'window.parent.document.getElementById(\'suburb\').value=\'\'; ' +   # Reset suburb
+                f'window.parent.updatePostcodes(); ' +
+                f'window.parent.document.forms[0].submit(); ' +
+                f'showRegionPostcodes(\'{region_name}\');">{region_name}</a>'
             )
-            folium.Marker([lat, lon], tooltip=region_name, popup=folium.Popup(popup_html, max_width=300), 
-                          icon=folium.Icon(color="blue", icon="info-sign")).add_to(m)
+            marker = folium.Marker(
+                [lat, lon], 
+                tooltip=region_name, 
+                popup=folium.Popup(popup_html, max_width=300), 
+                icon=folium.Icon(color="blue", icon="info-sign")
+            ).add_to(m)
     
-    # If a region is already selected, show its postcode markers immediately
+    # Set map bounds
     if region:
         region_coords = [POSTCODE_COORDS.get(pc) for pc in REGION_POSTCODE_LIST.get(region, []) if pc in POSTCODE_COORDS]
         region_coords = [c for c in region_coords if c]
         if region_coords:
             m.fit_bounds([[min(c[0] for c in region_coords), min(c[1] for c in region_coords)], 
                           [max(c[0] for c in region_coords), max(c[1] for c in region_coords)]])
-            # Add postcode markers for the selected region
-            postcodes_json = str(list(REGION_POSTCODE_LIST[region])).replace("'", "\\'")
-            m.get_root().html.add_child(folium.Element(f"<script>addPostcodeMarkers('{region}', {postcodes_json});</script>"))
     else:
         m.fit_bounds([[min(c[0] for c in all_coords), min(c[1] for c in all_coords)], 
                       [max(c[0] for c in all_coords), max(c[1] for c in all_coords)]])
-    
-    # Add the JavaScript to the map
+
+    # Add JavaScript to the map
     m.get_root().html.add_child(folium.Element(js_code))
     m.save(heatmap_path)
     return f"/static/{os.path.basename(heatmap_path)}"
