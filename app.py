@@ -257,17 +257,27 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
     {postcode_coords_js}
     var postcodeMarkers = {{}};
     var regionMarkers = {{}};
+    var map = null;
+
+    // Initialize map (Folium sets this up)
+    document.addEventListener('DOMContentLoaded', function() {{
+        console.log('DOM fully loaded, initializing map');
+        // Map should be available after Folium initializes it
+    }});
 
     function showRegionPostcodes(region) {{
+        console.log('Showing postcodes for region: ' + region);
         // Hide all postcode markers
         for (var pc in postcodeMarkers) {{
             if (postcodeMarkers[pc]) {{
                 postcodeMarkers[pc].remove();
+                delete postcodeMarkers[pc];
             }}
         }}
         // Show markers for the selected region
         var postcodes = {str(REGION_POSTCODE_LIST).replace("'", '"')}[region];
-        if (postcodes) {{
+        if (postcodes && map) {{
+            console.log('Adding markers for postcodes: ' + postcodes);
             postcodes.forEach(function(pc) {{
                 if (postcodeCoords[pc] && !postcodeMarkers[pc]) {{
                     var marker = L.marker(postcodeCoords[pc], {{
@@ -282,14 +292,18 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
                         'window.parent.document.forms[0].submit();">' + pc + '</a>'
                     );
                     postcodeMarkers[pc] = marker;
+                    console.log('Added marker for postcode: ' + pc);
                 }}
             }});
+        }} else {{
+            console.error('Map not initialized or postcodes not found for region: ' + region);
         }}
     }}
 
     // Initial load
     var selectedRegion = '{region or ""}';
     if (selectedRegion) {{
+        console.log('Initial load for region: ' + selectedRegion);
         showRegionPostcodes(selectedRegion);
     }}
     </script>
@@ -305,12 +319,14 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
             if region_name == "Hunter Valley excl Newcastle":
                 lon -= 0.5  # Move left by 0.5 degrees longitude
             popup_html = (
-                f'<a href="#" onclick="window.parent.document.getElementById(\'region\').value=\'{region_name}\'; ' +
-                f'window.parent.document.getElementById(\'postcode\').value=\'\'; ' +  # Reset postcode
-                f'window.parent.document.getElementById(\'suburb\').value=\'\'; ' +   # Reset suburb
+                f'<a href="#" onclick="showRegionPostcodes(\'{region_name}\'); ' +
+                f'setTimeout(function() {{ ' +
+                f'window.parent.document.getElementById(\'region\').value=\'{region_name}\'; ' +
+                f'window.parent.document.getElementById(\'postcode\').value=\'\'; ' +
+                f'window.parent.document.getElementById(\'suburb\').value=\'\'; ' +
                 f'window.parent.updatePostcodes(); ' +
                 f'window.parent.document.forms[0].submit(); ' +
-                f'showRegionPostcodes(\'{region_name}\');">{region_name}</a>'
+                f'}}, 500);">{region_name}</a>'
             )
             marker = folium.Marker(
                 [lat, lon], 
@@ -328,10 +344,12 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
                           [max(c[0] for c in region_coords), max(c[1] for c in region_coords)]])
     else:
         m.fit_bounds([[min(c[0] for c in all_coords), min(c[1] for c in all_coords)], 
-                      [max(c[0] for c in all_coords), max(c[1] for c in all_coords)]])
+                      [max(c[1] for c in all_coords), max(c[1] for c in all_coords)]])
 
-    # Add JavaScript to the map
-    m.get_root().html.add_child(folium.Element(js_code))
+    # Add JavaScript to the map (ensure map is assigned)
+    m.get_root().script.add_child(folium.Element(
+        f'<script>map = L.map(document.getElementsByClassName("folium-map")[0]); {js_code}</script>'
+    ))
     m.save(heatmap_path)
     return f"/static/{os.path.basename(heatmap_path)}"
 
