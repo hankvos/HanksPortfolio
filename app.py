@@ -265,25 +265,41 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
         filtered_df = filtered_df[filtered_df["Suburb"] == suburb]
     os.makedirs('static', exist_ok=True)
     chart_prefix = f"{region or 'all'}_{postcode or 'all'}_{suburb or 'all'}"
-    if filtered_df.empty:
+    
+    # Filter for HOUSE only for Median House Price Over Time
+    house_df = filtered_df[filtered_df["Property Type"] == "HOUSE"]
+    
+    # Dynamic title based on filters
+    if suburb:
+        title = f"Median House Price Over Time (Suburb: {suburb})"
+    elif postcode:
+        title = f"Median House Price Over Time (Postcode: {postcode})"
+    elif region:
+        title = f"Median House Price Over Time (Region: {region})"
+    else:
+        title = "Median House Price Over Time (All Data)"
+    
+    if house_df.empty:
         plt.figure(figsize=(10, 6))
-        plt.text(0.5, 0.5, "No Data Available", fontsize=12, ha='center', va='center')
-        plt.title("Median House Price Over Time")
+        plt.text(0.5, 0.5, "No House Data Available", fontsize=12, ha='center', va='center')
+        plt.title(title)
         plt.xlabel("Settlement Date")
         plt.ylabel("Price ($)")
         median_chart_path = os.path.join(app.static_folder, f"median_house_price_{chart_prefix}.png")
         plt.savefig(median_chart_path)
         plt.close()
         return median_chart_path, None, None, None, None
+    
     plt.figure(figsize=(10, 6))
-    filtered_df["Settlement Date"] = pd.to_datetime(filtered_df["Settlement Date"], format='%d/%m/%Y')
-    filtered_df.groupby(filtered_df["Settlement Date"].dt.to_period("M"))["Price"].median().plot()
-    plt.title("Median House Price Over Time")
+    house_df["Settlement Date"] = pd.to_datetime(house_df["Settlement Date"], format='%d/%m/%Y')
+    house_df.groupby(house_df["Settlement Date"].dt.to_period("M"))["Price"].median().plot()
+    plt.title(title)
     plt.xlabel("Settlement Date")
     plt.ylabel("Price ($)")
     median_chart_path = os.path.join(app.static_folder, f"median_house_price_{chart_prefix}.png")
     plt.savefig(median_chart_path)
     plt.close()
+    
     plt.figure(figsize=(10, 6))
     filtered_df["Price"].hist(bins=30)
     plt.title("Price Histogram")
@@ -292,6 +308,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
     price_hist_path = os.path.join(app.static_folder, f"price_hist_{chart_prefix}.png")
     plt.savefig(price_hist_path)
     plt.close()
+    
     region_timeline_path = None
     if region:
         plt.figure(figsize=(10, 6))
@@ -303,6 +320,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
         region_timeline_path = os.path.join(app.static_folder, f"region_timeline_{chart_prefix}.png")
         plt.savefig(region_timeline_path)
         plt.close()
+    
     postcode_timeline_path = None
     if postcode:
         plt.figure(figsize=(10, 6))
@@ -314,6 +332,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
         postcode_timeline_path = os.path.join(app.static_folder, f"postcode_timeline_{chart_prefix}.png")
         plt.savefig(postcode_timeline_path)
         plt.close()
+    
     suburb_timeline_path = None
     if suburb:
         plt.figure(figsize=(10, 6))
@@ -325,6 +344,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
         suburb_timeline_path = os.path.join(app.static_folder, f"suburb_timeline_{chart_prefix}.png")
         plt.savefig(suburb_timeline_path)
         plt.close()
+    
     return median_chart_path, price_hist_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path
 
 @app.route('/', methods=["GET", "POST"])
