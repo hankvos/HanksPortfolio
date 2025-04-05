@@ -295,20 +295,25 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
             if region_name == "Hunter Valley excl Newcastle":
                 lon -= 0.5  # Move left by 0.5 degrees longitude
             postcodes_json = str(list(postcodes)).replace("'", "\\'")  # Escape single quotes
+            # Updated popup: only the region link, auto-add markers on click
             popup_html = (
-                f'<a href="#" onclick="window.parent.document.getElementById(\'region\').value=\'{region_name}\'; '
-                f'window.parent.updatePostcodes(); window.parent.document.forms[0].submit();">{region_name}</a><br>'
-                f'<a href="#" onclick="addPostcodeMarkers(\'{region_name}\', {postcodes_json});">Show Postcodes</a>'
+                f'<a href="#" onclick="window.parent.document.getElementById(\'region\').value=\'{region_name}\'; ' +
+                f'addPostcodeMarkers(\'{region_name}\', {postcodes_json}); ' +
+                f'window.parent.updatePostcodes(); window.parent.document.forms[0].submit();">{region_name}</a>'
             )
             folium.Marker([lat, lon], tooltip=region_name, popup=folium.Popup(popup_html, max_width=300), 
                           icon=folium.Icon(color="blue", icon="info-sign")).add_to(m)
     
+    # If a region is already selected, show its postcode markers immediately
     if region:
         region_coords = [POSTCODE_COORDS.get(pc) for pc in REGION_POSTCODE_LIST.get(region, []) if pc in POSTCODE_COORDS]
         region_coords = [c for c in region_coords if c]
         if region_coords:
             m.fit_bounds([[min(c[0] for c in region_coords), min(c[1] for c in region_coords)], 
                           [max(c[0] for c in region_coords), max(c[1] for c in region_coords)]])
+            # Add postcode markers for the selected region
+            postcodes_json = str(list(REGION_POSTCODE_LIST[region])).replace("'", "\\'")
+            m.get_root().html.add_child(folium.Element(f"<script>addPostcodeMarkers('{region}', {postcodes_json});</script>"))
     else:
         m.fit_bounds([[min(c[0] for c in all_coords), min(c[1] for c in all_coords)], 
                       [max(c[0] for c in all_coords), max(c[1] for c in all_coords)]])
