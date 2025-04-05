@@ -102,7 +102,6 @@ def load_property_data():
                                                 df["Unit Number"] = df["Property ID"].map(unit_numbers).fillna("")
                                                 df["Street"] = df["House Number"] + " " + df["StreetOnly"]
                                                 df["Property Type"] = df["Property Type"].replace("RESIDENCE", "HOUSE")
-                                                # Only classify as UNIT if Unit Number is a meaningful identifier (e.g., "1", "2A")
                                                 df["Property Type"] = df.apply(
                                                     lambda row: "UNIT" if (
                                                         row["Property Type"] == "HOUSE" and 
@@ -254,10 +253,10 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
     postcode_coords_js = postcode_coords_js.rstrip(',') + "};"
     
     # JavaScript to add postcode markers
-    js_code = """
+    js_code = f"""
     <script>
     {postcode_coords_js}
-    var postcodeMarkers = {};
+    var postcodeMarkers = {{}};
     function addPostcodeMarkers(region, postcodes) {{
         // Remove existing postcode markers
         for (var pc in postcodeMarkers) {{
@@ -285,7 +284,7 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
         }});
     }}
     </script>
-    """.format(postcode_coords_js=postcode_coords_js)
+    """
     
     for i, (region_name, postcodes) in enumerate(REGION_POSTCODE_LIST.items()):
         coords = [POSTCODE_COORDS.get(pc) for pc in postcodes if pc in POSTCODE_COORDS]
