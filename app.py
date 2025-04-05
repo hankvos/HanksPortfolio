@@ -236,21 +236,37 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
     all_coords = [coord for pc in POSTCODE_COORDS for coord in [POSTCODE_COORDS[pc]]]
     center_lat, center_lon = (min(c[0] for c in all_coords) + max(c[0] for c in all_coords)) / 2, (min(c[1] for c in all_coords) + max(c[1] for c in all_coords)) / 2
     m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="CartoDB positron")
+    
     if not filtered_df.empty:
         heatmap_data = filtered_df[filtered_df["Postcode"].isin(POSTCODE_COORDS.keys())].groupby("Postcode").agg({"Price": "median"}).reset_index()
         heat_data = [[POSTCODE_COORDS[row["Postcode"]][0], POSTCODE_COORDS[row["Postcode"]][1], row["Price"] / 1e6]
                      for _, row in heatmap_data.iterrows() if row["Postcode"] in POSTCODE_COORDS]
         if heat_data:
             HeatMap(heat_data, radius=15, blur=20).add_to(m)
+    
     for i, (region_name, postcodes) in enumerate(REGION_POSTCODE_LIST.items()):
         coords = [POSTCODE_COORDS.get(pc) for pc in postcodes if pc in POSTCODE_COORDS]
         coords = [c for c in coords if c]
         if coords:
             lat = sum(c[0] for c in coords) / len(coords) + (i * 0.05)
             lon = sum(c[1] for c in coords) / len(coords)
+            # Shift "Hunter Valley excl Newcastle" marker left
+            if region_name == "Hunter Valley excl Newcastle":
+                lon -= 0.5  # Move left by 0.5 degrees longitude
             popup_html = f'<a href="#" onclick="window.parent.document.getElementById(\'region\').value=\'{region_name}\'; window.parent.updatePostcodes(); window.parent.document.forms[0].submit();">{region_name}</a>'
             folium.Marker([lat, lon], tooltip=region_name, popup=folium.Popup(popup_html, max_width=300), icon=folium.Icon(color="blue", icon="info-sign")).add_to(m)
-    m.fit_bounds([[min(c[0] for c in all_coords), min(c[1] for c in all_coords)], [max(c[0] for c in all_coords), max(c[1] for c in all_coords)]])
+    
+    # Focus on selected region if provided
+    if region:
+        region_coords = [POSTCODE_COORDS.get(pc) for pc in REGION_POSTCODE_LIST.get(region, []) if pc in POSTCODE_COORDS]
+        region_coords = [c for c in region_coords if c]
+        if region_coords:
+            m.fit_bounds([[min(c[0] for c in region_coords), min(c[1] for c in region_coords)], 
+                          [max(c[0] for c in region_coords), max(c[1] for c in region_coords)]])
+    else:
+        m.fit_bounds([[min(c[0] for c in all_coords), min(c[1] for c in all_coords)], 
+                      [max(c[0] for c in all_coords), max(c[1] for c in all_coords)]])
+    
     m.save(heatmap_path)
     return f"/static/{os.path.basename(heatmap_path)}"
 
@@ -280,6 +296,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
         title = "Median House Price Over Time (All Data)"
     
     if house_df.empty:
+        logging.info(f"No HOUSE data for {title}: {len(filtered_df)} records, {len(house_df)} HOUSE records")
         plt.figure(figsize=(10, 6))
         plt.text(0.5, 0.5, "No House Data Available", fontsize=12, ha='center', va='center')
         plt.title(title)
