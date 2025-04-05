@@ -102,12 +102,12 @@ def load_property_data():
                                                 df["Unit Number"] = df["Property ID"].map(unit_numbers).fillna("")
                                                 df["Street"] = df["House Number"] + " " + df["StreetOnly"]
                                                 df["Property Type"] = df["Property Type"].replace("RESIDENCE", "HOUSE")
-                                                # Only reclassify as UNIT if Unit Number is present and non-empty
+                                                # Only classify as UNIT if Unit Number is a meaningful identifier (e.g., "1", "2A")
                                                 df["Property Type"] = df.apply(
                                                     lambda row: "UNIT" if (
                                                         row["Property Type"] == "HOUSE" and 
                                                         row["Unit Number"] and 
-                                                        row["Unit Number"].strip()
+                                                        re.match(r'^\d+[A-Za-z]?$', row["Unit Number"].strip())
                                                     ) else row["Property Type"],
                                                     axis=1
                                                 )
@@ -247,6 +247,46 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
         if heat_data:
             HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
+    # Embed postcode coordinates as a JavaScript object
+    postcode_coords_js = "var postcodeCoords = {"
+    for pc, (lat, lon) in POSTCODE_COORDS.items():
+        postcode_coords_js += f"'{pc}': [{lat}, {lon}],"
+    postcode_coords_js = postcode_coords_js.rstrip(',') + "};"
+    
+    # JavaScript to add postcode markers
+    js_code = """
+    <script>
+    {postcode_coords_js}
+    var postcodeMarkers = {};
+    function addPostcodeMarkers(region, postcodes) {{
+        // Remove existing postcode markers
+        for (var pc in postcodeMarkers) {{
+            if (postcodeMarkers[pc]) {{
+                postcodeMarkers[pc].remove();
+                delete postcodeMarkers[pc];
+            }}
+        }}
+        // Add new postcode markers
+        postcodes.forEach(function(pc) {{
+            if (postcodeCoords[pc]) {{
+                var marker = L.marker(postcodeCoords[pc], {{
+                    icon: L.icon({{
+                        iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+                        iconSize: [25, 41],
+                        iconAnchor: [12, 41]
+                    }})
+                }}).addTo(map);
+                marker.bindPopup(
+                    '<a href="#" onclick="window.parent.document.getElementById(\\'postcode\\').value=\\'' + pc + '\\'; ' +
+                    'window.parent.document.forms[0].submit();">' + pc + '</a>'
+                );
+                postcodeMarkers[pc] = marker;
+            }}
+        }});
+    }}
+    </script>
+    """.format(postcode_coords_js=postcode_coords_js)
+    
     for i, (region_name, postcodes) in enumerate(REGION_POSTCODE_LIST.items()):
         coords = [POSTCODE_COORDS.get(pc) for pc in postcodes if pc in POSTCODE_COORDS]
         coords = [c for c in coords if c]
@@ -255,11 +295,11 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
             lon = sum(c[1] for c in coords) / len(coords)
             if region_name == "Hunter Valley excl Newcastle":
                 lon -= 0.5  # Move left by 0.5 degrees longitude
-            postcodes_str = "<br>Postcodes: " + ", ".join(sorted(postcodes))
+            postcodes_json = str(list(postcodes)).replace("'", "\\'")  # Escape single quotes
             popup_html = (
                 f'<a href="#" onclick="window.parent.document.getElementById(\'region\').value=\'{region_name}\'; '
-                f'window.parent.updatePostcodes(); window.parent.document.forms[0].submit();">{region_name}</a>'
-                f'{postcodes_str}'
+                f'window.parent.updatePostcodes(); window.parent.document.forms[0].submit();">{region_name}</a><br>'
+                f'<a href="#" onclick="addPostcodeMarkers(\'{region_name}\', {postcodes_json});">Show Postcodes</a>'
             )
             folium.Marker([lat, lon], tooltip=region_name, popup=folium.Popup(popup_html, max_width=300), 
                           icon=folium.Icon(color="blue", icon="info-sign")).add_to(m)
@@ -274,6 +314,8 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
         m.fit_bounds([[min(c[0] for c in all_coords), min(c[1] for c in all_coords)], 
                       [max(c[0] for c in all_coords), max(c[1] for c in all_coords)]])
     
+    # Add the JavaScript to the map
+    m.get_root().html.add_child(folium.Element(js_code))
     m.save(heatmap_path)
     return f"/static/{os.path.basename(heatmap_path)}"
 
