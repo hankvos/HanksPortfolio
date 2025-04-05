@@ -102,10 +102,12 @@ def load_property_data():
                                                 df["Unit Number"] = df["Property ID"].map(unit_numbers).fillna("")
                                                 df["Street"] = df["House Number"] + " " + df["StreetOnly"]
                                                 df["Property Type"] = df["Property Type"].replace("RESIDENCE", "HOUSE")
+                                                # Only reclassify as UNIT if Unit Number is present and non-empty
                                                 df["Property Type"] = df.apply(
                                                     lambda row: "UNIT" if (
                                                         row["Property Type"] == "HOUSE" and 
-                                                        (row["Unit Number"] or re.match(r'^\d+/\d+', row["Street"]))
+                                                        row["Unit Number"] and 
+                                                        row["Unit Number"].strip()
                                                     ) else row["Property Type"],
                                                     axis=1
                                                 )
@@ -130,6 +132,7 @@ def load_property_data():
     else:
         logging.info(f"Processed {len(result_df)} records from 2025.zip")
         logging.info(f"Raw Property Type counts (field 18): {dict(raw_property_types)}")
+        logging.info(f"Processed Property Type counts: {result_df['Property Type'].value_counts().to_dict()}")
         logging.info("Street values for first 200 records:")
         for i, street in enumerate(result_df["Street"].head(200)):
             logging.info(f"Record {i}: {street}")
@@ -250,13 +253,17 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
         if coords:
             lat = sum(c[0] for c in coords) / len(coords) + (i * 0.05)
             lon = sum(c[1] for c in coords) / len(coords)
-            # Shift "Hunter Valley excl Newcastle" marker left
             if region_name == "Hunter Valley excl Newcastle":
                 lon -= 0.5  # Move left by 0.5 degrees longitude
-            popup_html = f'<a href="#" onclick="window.parent.document.getElementById(\'region\').value=\'{region_name}\'; window.parent.updatePostcodes(); window.parent.document.forms[0].submit();">{region_name}</a>'
-            folium.Marker([lat, lon], tooltip=region_name, popup=folium.Popup(popup_html, max_width=300), icon=folium.Icon(color="blue", icon="info-sign")).add_to(m)
+            postcodes_str = "<br>Postcodes: " + ", ".join(sorted(postcodes))
+            popup_html = (
+                f'<a href="#" onclick="window.parent.document.getElementById(\'region\').value=\'{region_name}\'; '
+                f'window.parent.updatePostcodes(); window.parent.document.forms[0].submit();">{region_name}</a>'
+                f'{postcodes_str}'
+            )
+            folium.Marker([lat, lon], tooltip=region_name, popup=folium.Popup(popup_html, max_width=300), 
+                          icon=folium.Icon(color="blue", icon="info-sign")).add_to(m)
     
-    # Focus on selected region if provided
     if region:
         region_coords = [POSTCODE_COORDS.get(pc) for pc in REGION_POSTCODE_LIST.get(region, []) if pc in POSTCODE_COORDS]
         region_coords = [c for c in region_coords if c]
