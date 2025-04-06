@@ -49,6 +49,17 @@ POSTCODE_COORDS = {
     "2480": [-28.81, 153.44], "2481": [-28.67, 153.58], "2482": [-28.71, 153.52], "2483": [-28.76, 153.47]
 }
 
+# Precompute region centers
+REGION_CENTERS = {}
+for region_name, postcodes in REGION_POSTCODE_LIST.items():
+    coords = [POSTCODE_COORDS.get(pc) for pc in postcodes if pc in POSTCODE_COORDS]
+    coords = [c for c in coords if c]
+    if coords:
+        REGION_CENTERS[region_name] = [
+            sum(c[0] for c in coords) / len(coords),
+            sum(c[1] for c in coords) / len(coords)
+        ]
+
 def load_property_data():
     zip_files = [f for f in os.listdir() if f.endswith('.zip')]
     if not zip_files:
@@ -226,6 +237,7 @@ def generate_suburb_median_chart(postcode):
 
 @lru_cache(maxsize=32)
 def generate_heatmap_cached(region=None, postcode=None, suburb=None):
+    logging.info(f"Starting heatmap generation for region={region}, postcode={postcode}, suburb={suburb}")
     filtered_df = df.copy()
     if region:
         filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))]
@@ -235,9 +247,9 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
         filtered_df = filtered_df[filtered_df["Suburb"] == suburb]
     os.makedirs('static', exist_ok=True)
     heatmap_path = os.path.join(app.static_folder, f"heatmap_{region or 'all'}_{postcode or 'all'}_{suburb or 'all'}.html")
-    all_coords = [coord for pc in POSTCODE_COORDS for coord in [POSTCODE_COORDS[pc]]]
-    center_lat, center_lon = (min(c[0] for c in all_coords) + max(c[0] for c in all_coords)) / 2, (min(c[1] for c in all_coords) + max(c[1] for c in all_coords)) / 2
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="CartoDB positron")
+    
+    center_lat, center_lon = REGION_CENTERS.get(region, [None, None]) if region else [-32.0, 152.0]  # Default center
+    m = folium.Map(location=[center_lat or -32.0, center_lon or 152.0], zoom_start=9 if region else 7, tiles="CartoDB positron")
     
     if not filtered_df.empty:
         heatmap_data = filtered_df[filtered_df["Postcode"].isin(POSTCODE_COORDS.keys())].groupby("Postcode").agg({"Price": "median"}).reset_index()
@@ -246,12 +258,7 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
         if heat_data:
             HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
-    # Embed postcode coordinates and marker management JavaScript
-    postcode_coords_js = "var postcodeCoords = {"
-    for pc, (lat, lon) in POSTCODE_COORDS.items():
-        postcode_coords_js += f"'{pc}': [{lat}, {lon}],"
-    postcode_coords_js = postcode_coords_js.rstrip(',') + "};"
-    
+    postcode_coords_js = "var postcodeCoords = " + str(POSTCODE_COORDS).replace("'", '"') + ";"
     map_id = m._id
     
     js_code = f"""
@@ -269,7 +276,6 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
         }}
         console.log('Map accessed: ', map);
         
-        // Clear existing markers
         for (var pc in postcodeMarkers) {{
             if (postcodeMarkers[pc]) {{
                 map.removeLayer(postcodeMarkers[pc]);
@@ -278,7 +284,6 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
             }}
         }}
         
-        // Add new markers
         var postcodes = {str(REGION_POSTCODE_LIST).replace("'", '"')}[region];
         if (postcodes) {{
             console.log('Adding markers for postcodes: ' + postcodes);
@@ -310,7 +315,6 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
         }}
     }}
 
-    // Initial load
     window.addEventListener('load', function() {{
         console.log('Window loaded for map ID: {map_id}');
         var selectedRegion = '{region or ""}';
@@ -322,13 +326,10 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
     </script>
     """
     
-    # Add region markers
     for i, (region_name, postcodes) in enumerate(REGION_POSTCODE_LIST.items()):
-        coords = [POSTCODE_COORDS.get(pc) for pc in postcodes if pc in POSTCODE_COORDS]
-        coords = [c for c in coords if c]
-        if coords:
-            lat = sum(c[0] for c in coords) / len(coords) + (i * 0.05)
-            lon = sum(c[1] for c in coords) / len(coords)
+        center = REGION_CENTERS.get(region_name)
+        if center:
+            lat, lon = center[0] + (i * 0.05), center[1]
             if region_name == "Hunter Valley excl Newcastle":
                 lon -= 0.5
             popup_html = f"""
@@ -357,21 +358,9 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
                 icon=folium.Icon(color="blue", icon="info-sign")
             ).add_to(m)
     
-    # Set map bounds
-    if region:
-        region_coords = [POSTCODE_COORDS.get(pc) for pc in REGION_POSTCODE_LIST.get(region, []) if pc in POSTCODE_COORDS]
-        region_coords = [c for c in region_coords if c]
-        if region_coords:
-            m.fit_bounds([[min(c[0] for c in region_coords), min(c[1] for c in region_coords)], 
-                          [max(c[0] for c in region_coords), max(c[1] for c in region_coords)]])
-    else:
-        m.fit_bounds([[min(c[0] for c in all_coords), min(c[1] for c in all_coords)], 
-                      [max(c[0] for c in all_coords), max(c[1] for c in all_coords)]])
-
-    # Add JavaScript to the script section
     m.get_root().script.add_child(folium.Element(js_code))
-    
     m.save(heatmap_path)
+    logging.info(f"Heatmap generated and saved to {heatmap_path}")
     return f"/static/{os.path.basename(heatmap_path)}"
 
 @lru_cache(maxsize=32)
@@ -386,10 +375,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
     os.makedirs('static', exist_ok=True)
     chart_prefix = f"{region or 'all'}_{postcode or 'all'}_{suburb or 'all'}"
     
-    # Filter for HOUSE only for Median House Price Over Time
     house_df = filtered_df[filtered_df["Property Type"] == "HOUSE"]
-    
-    # Dynamic title based on filters
     if suburb:
         title = f"Median House Price Over Time (Suburb: {suburb})"
     elif postcode:
