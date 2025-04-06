@@ -262,61 +262,72 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
 
     console.log('Script loaded for map ID: {map_id}');
 
-    document.addEventListener('DOMContentLoaded', function() {{
-        console.log('DOM fully loaded, map ID: {map_id}');
+    function waitForMap(callback) {{
         var map = window['{map_id}'];
-        if (!map) {{
-            console.error('Map object not found for ID: {map_id}');
+        if (map) {{
+            console.log('Map found: ', map);
+            callback(map);
         }} else {{
-            console.log('Map object found: ', map);
+            console.log('Waiting for map to load...');
+            setTimeout(function() {{ waitForMap(callback); }}, 100);
         }}
+    }}
+
+    document.addEventListener('DOMContentLoaded', function() {{
+        console.log('DOM fully loaded, checking for map ID: {map_id}');
+        waitForMap(function(map) {{
+            console.log('Map ready on DOM load: ', map);
+        }});
     }});
 
     function showRegionPostcodes(region) {{
-        console.log('Showing postcodes for region: ' + region);
-        var map = window['{map_id}'];
-        if (!map) {{
-            console.error('Map object not found for ID: {map_id}');
-            return;
-        }}
-        // Hide all postcode markers
-        for (var pc in postcodeMarkers) {{
-            if (postcodeMarkers[pc]) {{
-                postcodeMarkers[pc].remove();
-                delete postcodeMarkers[pc];
-            }}
-        }}
-        // Show markers for the selected region
-        var postcodes = {str(REGION_POSTCODE_LIST).replace("'", '"')}[region];
-        if (postcodes) {{
-            console.log('Adding markers for postcodes: ' + postcodes);
-            postcodes.forEach(function(pc) {{
-                if (postcodeCoords[pc] && !postcodeMarkers[pc]) {{
-                    var marker = L.marker(postcodeCoords[pc], {{
-                        icon: L.icon({{
-                            iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-                            iconSize: [25, 41],
-                            iconAnchor: [12, 41]
-                        }})
-                    }});
-                    marker.addTo(map).bindPopup(
-                        '<a href="#" onclick="window.parent.document.getElementById(\\'postcode\\').value=\\'' + pc + '\\'; ' +
-                        'window.parent.document.forms[0].submit();">' + pc + '</a>'
-                    );
-                    postcodeMarkers[pc] = marker;
-                    console.log('Added marker for postcode: ' + pc);
+        console.log('Function showRegionPostcodes called with region: ' + region);
+        waitForMap(function(map) {{
+            console.log('Map available in showRegionPostcodes: ', map);
+            // Clear existing postcode markers
+            for (var pc in postcodeMarkers) {{
+                if (postcodeMarkers[pc]) {{
+                    postcodeMarkers[pc].remove();
+                    delete postcodeMarkers[pc];
+                    console.log('Removed marker for postcode: ' + pc);
                 }}
-            }});
-        }} else {{
-            console.error('Postcodes not found for region: ' + region);
-        }}
+            }}
+            // Add new markers for the region
+            var postcodes = {str(REGION_POSTCODE_LIST).replace("'", '"')}[region];
+            if (postcodes) {{
+                console.log('Adding markers for postcodes: ' + postcodes);
+                postcodes.forEach(function(pc) {{
+                    if (postcodeCoords[pc] && !postcodeMarkers[pc]) {{
+                        var marker = L.marker(postcodeCoords[pc], {{
+                            icon: L.icon({{
+                                iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+                                iconSize: [25, 41],
+                                iconAnchor: [12, 41]
+                            }})
+                        }});
+                        marker.addTo(map).bindPopup(
+                            '<a href="#" onclick="window.parent.document.getElementById(\\'postcode\\').value=\\'' + pc + '\\'; ' +
+                            'window.parent.document.forms[0].submit();">' + pc + '</a>'
+                        );
+                        postcodeMarkers[pc] = marker;
+                        console.log('Added marker for postcode: ' + pc + ' at ' + postcodeCoords[pc]);
+                    }}
+                }});
+                map.fitBounds(postcodes.map(pc => postcodeCoords[pc]).filter(coords => coords));
+                console.log('Adjusted map bounds to show all markers for region: ' + region);
+            }} else {{
+                console.error('No postcodes found for region: ' + region);
+            }}
+        }});
     }}
 
     // Initial load
     var selectedRegion = '{region or ""}';
     if (selectedRegion) {{
         console.log('Initial load for region: ' + selectedRegion);
-        setTimeout(function() {{ showRegionPostcodes(selectedRegion); }}, 100);  // Slight delay to ensure map is ready
+        waitForMap(function(map) {{
+            showRegionPostcodes(selectedRegion);
+        }});
     }}
     </script>
     """
@@ -330,7 +341,6 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
             lon = sum(c[1] for c in coords) / len(coords)
             if region_name == "Hunter Valley excl Newcastle":
                 lon -= 0.5  # Move left by 0.5 degrees longitude
-            # Use raw HTML string with proper escaping
             popup_html = (
                 f'<a href="#" onclick="showRegionPostcodes(\'{region_name}\');'
                 f'setTimeout(function() {{'
@@ -339,7 +349,7 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
                 f'window.parent.document.getElementById(\'suburb\').value=\'\';'
                 f'window.parent.updatePostcodes();'
                 f'window.parent.document.forms[0].submit();'
-                f'}}, 500);">{region_name}</a>'
+                f'}}, 1000);">{region_name}</a>'
             )
             folium.Marker(
                 [lat, lon],
