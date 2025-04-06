@@ -248,7 +248,7 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
     os.makedirs('static', exist_ok=True)
     heatmap_path = os.path.join(app.static_folder, f"heatmap_{region or 'all'}_{postcode or 'all'}_{suburb or 'all'}.html")
     
-    center_lat, center_lon = REGION_CENTERS.get(region, [None, None]) if region else [-32.0, 152.0]  # Default center
+    center_lat, center_lon = REGION_CENTERS.get(region, [None, None]) if region else [-32.0, 152.0]
     m = folium.Map(location=[center_lat or -32.0, center_lon or 152.0], zoom_start=9 if region else 7, tiles="CartoDB positron")
     
     if not filtered_df.empty:
@@ -262,11 +262,9 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
     map_id = m._id
     
     js_code = f"""
-    <script>
     {postcode_coords_js}
     var postcodeMarkers = {{}};
     console.log('Heatmap script loaded for map ID: {map_id}');
-
     function showRegionPostcodes(region) {{
         console.log('showRegionPostcodes called with region: ' + region);
         var map = window.map_{map_id} || L.map('{map_id}');
@@ -275,7 +273,6 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
             return;
         }}
         console.log('Map accessed: ', map);
-        
         for (var pc in postcodeMarkers) {{
             if (postcodeMarkers[pc]) {{
                 map.removeLayer(postcodeMarkers[pc]);
@@ -283,7 +280,6 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
                 console.log('Removed marker for postcode: ' + pc);
             }}
         }}
-        
         var postcodes = {str(REGION_POSTCODE_LIST).replace("'", '"')}[region];
         if (postcodes) {{
             console.log('Adding markers for postcodes: ' + postcodes);
@@ -298,8 +294,7 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
                         }})
                     }}).addTo(map);
                     marker.bindPopup(
-                        '<a href="#" onclick="window.parent.document.getElementById(\\'postcode\\').value=\\'' + pc + '\\'; ' +
-                        'window.parent.document.forms[0].submit();">' + pc + '</a>'
+                        `<a href="#" onclick="window.parent.document.getElementById('postcode').value='${{pc}}'; window.parent.document.forms[0].submit();">${{pc}}</a>`
                     );
                     postcodeMarkers[pc] = marker;
                     bounds.push(postcodeCoords[pc]);
@@ -314,7 +309,6 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
             console.error('No postcodes found for region: ' + region);
         }}
     }}
-
     window.addEventListener('load', function() {{
         console.log('Window loaded for map ID: {map_id}');
         var selectedRegion = '{region or ""}';
@@ -323,7 +317,6 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
             showRegionPostcodes(selectedRegion);
         }}
     }});
-    </script>
     """
     
     for i, (region_name, postcodes) in enumerate(REGION_POSTCODE_LIST.items()):
