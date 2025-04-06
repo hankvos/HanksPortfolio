@@ -258,77 +258,68 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
     <script>
     {postcode_coords_js}
     var postcodeMarkers = {{}};
-    var regionMarkers = {{}};
 
     console.log('Script loaded for map ID: {map_id}');
 
-    function waitForMap(callback) {{
-        var map = window['{map_id}'];
-        if (map) {{
-            console.log('Map found: ', map);
-            callback(map);
+    function showRegionPostcodes(region) {{
+        console.log('showRegionPostcodes called with region: ' + region);
+        var map = L.map('{map_id}');
+        if (!map) {{
+            console.error('Map not found for ID: {map_id}');
+            return;
+        }}
+        console.log('Map accessed: ', map);
+        
+        // Clear existing markers
+        for (var pc in postcodeMarkers) {{
+            if (postcodeMarkers[pc]) {{
+                map.removeLayer(postcodeMarkers[pc]);
+                delete postcodeMarkers[pc];
+                console.log('Removed marker for postcode: ' + pc);
+            }}
+        }}
+        
+        // Add new markers
+        var postcodes = {str(REGION_POSTCODE_LIST).replace("'", '"')}[region];
+        if (postcodes) {{
+            console.log('Adding markers for postcodes: ' + postcodes);
+            var bounds = [];
+            postcodes.forEach(function(pc) {{
+                if (postcodeCoords[pc]) {{
+                    var marker = L.marker(postcodeCoords[pc], {{
+                        icon: L.icon({{
+                            iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+                            iconSize: [25, 41],
+                            iconAnchor: [12, 41]
+                        }})
+                    }}).addTo(map);
+                    marker.bindPopup(
+                        '<a href="#" onclick="window.parent.document.getElementById(\\'postcode\\').value=\\'' + pc + '\\'; ' +
+                        'window.parent.document.forms[0].submit();">' + pc + '</a>'
+                    );
+                    postcodeMarkers[pc] = marker;
+                    bounds.push(postcodeCoords[pc]);
+                    console.log('Added marker for postcode: ' + pc + ' at ' + postcodeCoords[pc]);
+                }}
+            }});
+            if (bounds.length > 0) {{
+                map.fitBounds(bounds);
+                console.log('Map bounds adjusted to: ', bounds);
+            }}
         }} else {{
-            console.log('Waiting for map to load...');
-            setTimeout(function() {{ waitForMap(callback); }}, 100);
+            console.error('No postcodes found for region: ' + region);
         }}
     }}
 
-    document.addEventListener('DOMContentLoaded', function() {{
-        console.log('DOM fully loaded, checking for map ID: {map_id}');
-        waitForMap(function(map) {{
-            console.log('Map ready on DOM load: ', map);
-        }});
-    }});
-
-    function showRegionPostcodes(region) {{
-        console.log('Function showRegionPostcodes called with region: ' + region);
-        waitForMap(function(map) {{
-            console.log('Map available in showRegionPostcodes: ', map);
-            // Clear existing postcode markers
-            for (var pc in postcodeMarkers) {{
-                if (postcodeMarkers[pc]) {{
-                    postcodeMarkers[pc].remove();
-                    delete postcodeMarkers[pc];
-                    console.log('Removed marker for postcode: ' + pc);
-                }}
-            }}
-            // Add new markers for the region
-            var postcodes = {str(REGION_POSTCODE_LIST).replace("'", '"')}[region];
-            if (postcodes) {{
-                console.log('Adding markers for postcodes: ' + postcodes);
-                postcodes.forEach(function(pc) {{
-                    if (postcodeCoords[pc] && !postcodeMarkers[pc]) {{
-                        var marker = L.marker(postcodeCoords[pc], {{
-                            icon: L.icon({{
-                                iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-                                iconSize: [25, 41],
-                                iconAnchor: [12, 41]
-                            }})
-                        }});
-                        marker.addTo(map).bindPopup(
-                            '<a href="#" onclick="window.parent.document.getElementById(\\'postcode\\').value=\\'' + pc + '\\'; ' +
-                            'window.parent.document.forms[0].submit();">' + pc + '</a>'
-                        );
-                        postcodeMarkers[pc] = marker;
-                        console.log('Added marker for postcode: ' + pc + ' at ' + postcodeCoords[pc]);
-                    }}
-                }});
-                map.fitBounds(postcodes.map(pc => postcodeCoords[pc]).filter(coords => coords));
-                console.log('Adjusted map bounds to show all markers for region: ' + region);
-            }} else {{
-                console.error('No postcodes found for region: ' + region);
-            }}
-        }});
-    }}
-
     // Initial load
-    var selectedRegion = '{region or ""}';
-    if (selectedRegion) {{
-        console.log('Initial load for region: ' + selectedRegion);
-        waitForMap(function(map) {{
+    window.onload = function() {{
+        console.log('Window loaded for map ID: {map_id}');
+        var selectedRegion = '{region or ""}';
+        if (selectedRegion) {{
+            console.log('Initial load for region: ' + selectedRegion);
             showRegionPostcodes(selectedRegion);
-        }});
-    }}
+        }}
+    }};
     </script>
     """
     
@@ -340,23 +331,31 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
             lat = sum(c[0] for c in coords) / len(coords) + (i * 0.05)
             lon = sum(c[1] for c in coords) / len(coords)
             if region_name == "Hunter Valley excl Newcastle":
-                lon -= 0.5  # Move left by 0.5 degrees longitude
-            popup_html = (
-                f'<a href="#" onclick="showRegionPostcodes(\'{region_name}\');'
-                f'setTimeout(function() {{'
-                f'window.parent.document.getElementById(\'region\').value=\'{region_name}\';'
-                f'window.parent.document.getElementById(\'postcode\').value=\'\';'
-                f'window.parent.document.getElementById(\'suburb\').value=\'\';'
-                f'window.parent.updatePostcodes();'
-                f'window.parent.document.forms[0].submit();'
-                f'}}, 1000);">{region_name}</a>'
-            )
-            folium.Marker(
+                lon -= 0.5
+            marker = folium.Marker(
                 [lat, lon],
                 tooltip=region_name,
-                popup=folium.Popup(popup_html, max_width=300),
                 icon=folium.Icon(color="blue", icon="info-sign")
-            ).add_to(m)
+            )
+            popup_html = f"""
+            <a href="#" id="region-{region_name.replace(' ', '-')}">{region_name}</a>
+            <script>
+            document.getElementById('region-{region_name.replace(' ', '-')}').addEventListener('click', function(e) {{
+                e.preventDefault();
+                console.log('Clicked region: {region_name}');
+                showRegionPostcodes('{region_name}');
+                setTimeout(function() {{
+                    window.parent.document.getElementById('region').value = '{region_name}';
+                    window.parent.document.getElementById('postcode').value = '';
+                    window.parent.document.getElementById('suburb').value = '';
+                    window.parent.updatePostcodes();
+                    window.parent.document.forms[0].submit();
+                }}, 2000);
+            }});
+            </script>
+            """
+            marker.add_child(folium.Popup(popup_html, max_width=300))
+            marker.add_to(m)
     
     # Set map bounds
     if region:
@@ -369,8 +368,8 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
         m.fit_bounds([[min(c[0] for c in all_coords), min(c[1] for c in all_coords)], 
                       [max(c[0] for c in all_coords), max(c[1] for c in all_coords)]])
 
-    # Add JavaScript to the head of the HTML
-    m.get_root().header.add_child(folium.Element(js_code))
+    # Add JavaScript at the end of the body
+    m.get_root().html.add_child(folium.Element(js_code))
     
     m.save(heatmap_path)
     return f"/static/{os.path.basename(heatmap_path)}"
