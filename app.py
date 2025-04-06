@@ -252,18 +252,17 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
         postcode_coords_js += f"'{pc}': [{lat}, {lon}],"
     postcode_coords_js = postcode_coords_js.rstrip(',') + "};"
     
-    map_id = m._id  # e.g., 'map_bc9b95564c0f3d15e5bd9e9736972b83'
+    map_id = m._id
     
     js_code = f"""
     <script>
     {postcode_coords_js}
     var postcodeMarkers = {{}};
-
-    console.log('Script loaded for map ID: {map_id}');
+    console.log('Heatmap script loaded for map ID: {map_id}');
 
     function showRegionPostcodes(region) {{
         console.log('showRegionPostcodes called with region: ' + region);
-        var map = L.map('{map_id}');
+        var map = window.map_{map_id} || L.map('{map_id}');
         if (!map) {{
             console.error('Map not found for ID: {map_id}');
             return;
@@ -312,14 +311,14 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
     }}
 
     // Initial load
-    window.onload = function() {{
+    window.addEventListener('load', function() {{
         console.log('Window loaded for map ID: {map_id}');
         var selectedRegion = '{region or ""}';
         if (selectedRegion) {{
             console.log('Initial load for region: ' + selectedRegion);
             showRegionPostcodes(selectedRegion);
         }}
-    }};
+    }});
     </script>
     """
     
@@ -332,30 +331,31 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
             lon = sum(c[1] for c in coords) / len(coords)
             if region_name == "Hunter Valley excl Newcastle":
                 lon -= 0.5
-            marker = folium.Marker(
+            popup_html = f"""
+            <div>
+                <a href="#" id="region-{region_name.replace(' ', '-')}">{region_name}</a>
+                <script>
+                document.getElementById('region-{region_name.replace(' ', '-')}').addEventListener('click', function(e) {{
+                    e.preventDefault();
+                    console.log('Clicked region: "{region_name}"');
+                    showRegionPostcodes('{region_name}');
+                    setTimeout(function() {{
+                        window.parent.document.getElementById('region').value = '{region_name}';
+                        window.parent.document.getElementById('postcode').value = '';
+                        window.parent.document.getElementById('suburb').value = '';
+                        window.parent.updatePostcodes();
+                        window.parent.document.forms[0].submit();
+                    }}, 2000);
+                }});
+                </script>
+            </div>
+            """
+            folium.Marker(
                 [lat, lon],
                 tooltip=region_name,
+                popup=folium.Popup(popup_html, parse_html=True, max_width=300),
                 icon=folium.Icon(color="blue", icon="info-sign")
-            )
-            popup_html = f"""
-            <a href="#" id="region-{region_name.replace(' ', '-')}">{region_name}</a>
-            <script>
-            document.getElementById('region-{region_name.replace(' ', '-')}').addEventListener('click', function(e) {{
-                e.preventDefault();
-                console.log('Clicked region: {region_name}');
-                showRegionPostcodes('{region_name}');
-                setTimeout(function() {{
-                    window.parent.document.getElementById('region').value = '{region_name}';
-                    window.parent.document.getElementById('postcode').value = '';
-                    window.parent.document.getElementById('suburb').value = '';
-                    window.parent.updatePostcodes();
-                    window.parent.document.forms[0].submit();
-                }}, 2000);
-            }});
-            </script>
-            """
-            marker.add_child(folium.Popup(popup_html, max_width=300))
-            marker.add_to(m)
+            ).add_to(m)
     
     # Set map bounds
     if region:
@@ -368,8 +368,8 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
         m.fit_bounds([[min(c[0] for c in all_coords), min(c[1] for c in all_coords)], 
                       [max(c[0] for c in all_coords), max(c[1] for c in all_coords)]])
 
-    # Add JavaScript at the end of the body
-    m.get_root().html.add_child(folium.Element(js_code))
+    # Add JavaScript to the script section
+    m.get_root().script.add_child(folium.Element(js_code))
     
     m.save(heatmap_path)
     return f"/static/{os.path.basename(heatmap_path)}"
