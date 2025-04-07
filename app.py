@@ -8,6 +8,7 @@ from collections import Counter
 from functools import lru_cache
 import sys
 import time
+import threading
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -179,6 +180,7 @@ def generate_region_median_chart():
         if not region_df.empty:
             median_prices[region] = region_df["Price"].median()
     if not median_prices:
+        logging.warning("No median prices calculated for regions.")
         return None
     regions, prices = zip(*sorted(median_prices.items(), key=lambda x: x[1]))
     plt.figure(figsize=(10, 6))
@@ -191,7 +193,8 @@ def generate_region_median_chart():
     chart_path = os.path.join(app.static_folder, "region_median_prices.png")
     plt.savefig(chart_path)
     plt.close()
-    return chart_path
+    logging.info(f"Region median chart saved to {chart_path}")
+    return "static/region_median_prices.png"
 
 def generate_postcode_median_chart(region=None, postcode=None):
     os.makedirs('static', exist_ok=True)
@@ -308,7 +311,7 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
                 lon -= 0.5
             popup_html = f"""
             <div>
-                <a href="#" onclick="parent.handleRegionClick('{region_name}'); return false;">{region_name}</a>
+                <button onclick="parent.handleRegionClick('{region_name}')">{region_name}</button>
             </div>
             """
             iframe = folium.IFrame(html=popup_html, width=200, height=50)
@@ -423,14 +426,20 @@ def pre_generate_charts():
         generate_postcode_median_chart(region=region)
     logging.info("Pre-generation of default charts completed.")
 
+def pre_generate_charts_async():
+    logging.info("Starting async pre-generation of default charts...")
+    pre_generate_charts()
+    logging.info("Async pre-generation completed.")
+
 @app.route('/health')
 def health_check():
-    return jsonify({"status": "ok"}), 200
+    return "OK", 200
 
 @app.route('/', methods=["GET", "POST"])
 def index():
     start_time = time.time()
     logging.info("Starting index route")
+    logging.info(f"Request method: {request.method}, Form data: {request.form}")
     
     df = load_property_data()
     selected_region = request.form.get("region", None) if request.method == "POST" else None
@@ -464,6 +473,7 @@ def index():
         median_chart_path, price_hist_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path = generate_charts_cached(selected_region, selected_postcode, selected_suburb)
     if not selected_region and not selected_postcode and not selected_suburb:
         region_median_chart_path = generate_region_median_chart()
+        logging.info(f"Region median chart path: {region_median_chart_path}")
     elif selected_region and not selected_postcode and not selected_suburb:
         postcode_median_chart_path = generate_postcode_median_chart(region=selected_region)
     elif selected_postcode and not selected_suburb:
@@ -557,19 +567,14 @@ def hot_suburbs():
         return redirect(url_for('index'), code=307)  # Preserve POST data
 
     df = load_property_data()
-    # Filter to only six regions
     allowed_postcodes = set().union(*REGION_POSTCODE_LIST.values())
     filtered_df = df[df["Postcode"].isin(allowed_postcodes)]
-    # Create a mapping of postcode to region
     postcode_to_region = {}
     for region, postcodes in REGION_POSTCODE_LIST.items():
         for pc in postcodes:
             postcode_to_region[pc] = region
-    # Group by suburb and postcode, calculate median price
     suburb_medians = filtered_df.groupby(["Suburb", "Postcode"])["Price"].median().reset_index()
-    # Add region column
     suburb_medians["Region"] = suburb_medians["Postcode"].map(postcode_to_region)
-    # Filter for median price < $900,000 and sort
     hot_suburbs_df = suburb_medians[suburb_medians["Price"] < 900000].sort_values(by="Price")
     hot_suburbs_list = hot_suburbs_df.to_dict(orient="records")
     
@@ -591,10 +596,20 @@ def hot_suburbs():
 def static_files(filename):
     return send_from_directory(app.static_folder, filename)
 
-logging.info("Initializing application...")
-load_property_data()
-pre_generate_charts()
+# Background pre-generation on Render
+if os.environ.get("RENDER"):
+    threading.Thread(target=pre_generate_charts_async, daemon=True).start()
+else:
+    # Local dev: run synchronously
+    load_property_data()
+    pre_generate_charts()
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port, debug=False)
+else:
+    gunicorn_logger = logging.getLogger("gunicorn.error")
+    app.logger.handlers = gunicorn_logger.handlers
+    app.logger.setLevel(gunicorn_logger.level)
+    port = int(os.environ.get("PORT", 10000))
+    logging.info(f"Starting gunicorn on port {port}")
