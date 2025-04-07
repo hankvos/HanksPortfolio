@@ -50,7 +50,6 @@ POSTCODE_COORDS = {
     "2480": [-28.81, 153.44], "2481": [-28.67, 153.58], "2482": [-28.71, 153.52], "2483": [-28.76, 153.47]
 }
 
-# Precompute region centers
 REGION_CENTERS = {}
 for region_name, postcodes in REGION_POSTCODE_LIST.items():
     coords = [POSTCODE_COORDS.get(pc) for pc in postcodes if pc in POSTCODE_COORDS]
@@ -61,7 +60,24 @@ for region_name, postcodes in REGION_POSTCODE_LIST.items():
             sum(c[1] for c in coords) / len(coords)
         ]
 
+SUBURB_COORDS = {
+    "2262": {
+        "BLUE HAVEN": [-33.36, 151.43],
+        "BUDGEWOI": [-33.23, 151.56],
+        "DOYALSON": [-33.20, 151.52],
+        "SAN REMO": [-33.21, 151.51]
+    }
+}
+
+df = None
+
 def load_property_data():
+    global df
+    if df is not None:
+        return df
+    
+    start_time = time.time()
+    logging.info("Loading property data...")
     zip_files = [f for f in os.listdir() if f.endswith('.zip')]
     if not zip_files:
         logging.error("No ZIP files found in the directory.")
@@ -98,9 +114,9 @@ def load_property_data():
                                                     raw_property_types[row[18]] += 1
                                                     if row[18] in allowed_types:
                                                         parsed_rows.append(row)
-                                            df = pd.DataFrame(parsed_rows)
-                                            if not df.empty:
-                                                df = df.rename(columns={
+                                            temp_df = pd.DataFrame(parsed_rows)
+                                            if not temp_df.empty:
+                                                temp_df = temp_df.rename(columns={
                                                     7: "House Number",
                                                     8: "StreetOnly",
                                                     9: "Suburb",
@@ -111,10 +127,10 @@ def load_property_data():
                                                     18: "Property Type",
                                                     2: "Property ID"
                                                 })
-                                                df["Unit Number"] = df["Property ID"].map(unit_numbers).fillna("")
-                                                df["Street"] = df["House Number"] + " " + df["StreetOnly"]
-                                                df["Property Type"] = df["Property Type"].replace("RESIDENCE", "HOUSE")
-                                                df["Property Type"] = df.apply(
+                                                temp_df["Unit Number"] = temp_df["Property ID"].map(unit_numbers).fillna("")
+                                                temp_df["Street"] = temp_df["House Number"] + " " + temp_df["StreetOnly"]
+                                                temp_df["Property Type"] = temp_df["Property Type"].replace("RESIDENCE", "HOUSE")
+                                                temp_df["Property Type"] = temp_df.apply(
                                                     lambda row: "UNIT" if (
                                                         row["Property Type"] == "HOUSE" and 
                                                         row["Unit Number"] and 
@@ -122,15 +138,16 @@ def load_property_data():
                                                     ) else row["Property Type"],
                                                     axis=1
                                                 )
-                                                df = df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"]]
-                                                df["Postcode"] = df["Postcode"].astype(str)
-                                                df["Price"] = pd.to_numeric(df["Price"], errors='coerce', downcast='float')
-                                                df["Block Size"] = pd.to_numeric(df["Block Size"], errors='coerce', downcast='float')
-                                                df["Settlement Date"] = pd.to_datetime(df["Settlement Date"], format='%Y%m%d', errors='coerce')
-                                                df = df[df["Settlement Date"].dt.year >= 2024]
-                                                df["Settlement Date"] = df["Settlement Date"].dt.strftime('%d/%m/%Y')
-                                                df = df[df["Postcode"].isin(ALLOWED_POSTCODES)]
-                                                result_df = pd.concat([result_df, df], ignore_index=True)
+                                                temp_df = temp_df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"]]
+                                                temp_df["Postcode"] = temp_df["Postcode"].astype(str)
+                                                temp_df["Price"] = pd.to_numeric(temp_df["Price"], errors='coerce', downcast='float')
+                                                temp_df["Block Size"] = pd.to_numeric(temp_df["Block Size"], errors='coerce', downcast='float')
+                                                temp_df["Settlement Date"] = pd.to_datetime(temp_df["Settlement Date"], format='%Y%m%d', errors='coerce')
+                                                temp_df = temp_df[temp_df["Settlement Date"].dt.year >= 2024]
+                                                temp_df["Settlement Date"] = temp_df["Settlement Date"].dt.strftime('%d/%m/%Y')
+                                                temp_df = temp_df[temp_df["Postcode"].isin(ALLOWED_POSTCODES)]
+                                                if not temp_df.empty:
+                                                    result_df = pd.concat([result_df, temp_df], ignore_index=True)
                                     except Exception as e:
                                         logging.error(f"Error reading {dat_file} in {nested_zip_name}: {e}")
                     except Exception as e:
@@ -144,19 +161,15 @@ def load_property_data():
         logging.info(f"Processed {len(result_df)} records from 2025.zip")
         logging.info(f"Raw Property Type counts (field 18): {dict(raw_property_types)}")
         logging.info(f"Processed Property Type counts: {result_df['Property Type'].value_counts().to_dict()}")
-        logging.info("Street values for first 200 records:")
-        for i, street in enumerate(result_df["Street"].head(200)):
-            logging.info(f"Record {i}: {street}")
-        logging.info(f"Loaded {len(result_df)} records into DataFrame at startup.")
+        logging.info(f"Loaded {len(result_df)} records into DataFrame in {time.time() - start_time:.2f} seconds")
 
-    return result_df
-
-# Cache DataFrame globally
-df = load_property_data()
+    df = result_df
+    return df
 
 def generate_region_median_chart():
     os.makedirs('static', exist_ok=True)
     median_prices = {}
+    df = load_property_data()
     for region, postcodes in REGION_POSTCODE_LIST.items():
         region_df = df[df["Postcode"].isin(postcodes)]
         if not region_df.empty:
@@ -179,6 +192,7 @@ def generate_region_median_chart():
 def generate_postcode_median_chart(region=None, postcode=None):
     os.makedirs('static', exist_ok=True)
     median_prices = {}
+    df = load_property_data()
     if region:
         postcodes = REGION_POSTCODE_LIST.get(region, [])
         filtered_df = df[df["Postcode"].isin(postcodes)]
@@ -213,6 +227,7 @@ def generate_postcode_median_chart(region=None, postcode=None):
 
 def generate_suburb_median_chart(postcode):
     os.makedirs('static', exist_ok=True)
+    df = load_property_data()
     filtered_df = df[df["Postcode"] == postcode]
     median_prices = {}
     for suburb in filtered_df["Suburb"].unique():
@@ -240,6 +255,7 @@ def generate_suburb_median_chart(postcode):
 def generate_heatmap_cached(region=None, postcode=None, suburb=None):
     start_time = time.time()
     logging.info(f"Starting heatmap generation for region={region}, postcode={postcode}, suburb={suburb}")
+    df = load_property_data()
     filtered_df = df.copy()
     if region:
         filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))]
@@ -247,26 +263,63 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
         filtered_df = filtered_df[filtered_df["Postcode"] == postcode]
     if suburb:
         filtered_df = filtered_df[filtered_df["Suburb"] == suburb]
+    
     os.makedirs('static', exist_ok=True)
     heatmap_path = os.path.join(app.static_folder, f"heatmap_{region or 'all'}_{postcode or 'all'}_{suburb or 'all'}.html")
     
     center_lat, center_lon = REGION_CENTERS.get(region, [None, None]) if region else [-32.0, 152.0]
-    m = folium.Map(location=[center_lat or -32.0, center_lon or 152.0], zoom_start=9 if region else 7, tiles="CartoDB positron")
+    if postcode and not suburb:
+        # Center on postcode if no suburb selected
+        center = POSTCODE_COORDS.get(postcode, [-32.0, 152.0])
+        center_lat, center_lon = center[0], center[1]
+    m = folium.Map(location=[center_lat or -32.0, center_lon or 152.0], zoom_start=11 if postcode else 9 if region else 7, tiles="CartoDB positron")
     
     if not filtered_df.empty:
-        heatmap_data = filtered_df[filtered_df["Postcode"].isin(POSTCODE_COORDS.keys())].groupby("Postcode").agg({"Price": "median"}).reset_index()
-        heat_data = [[POSTCODE_COORDS[row["Postcode"]][0], POSTCODE_COORDS[row["Postcode"]][1], row["Price"] / 1e6]
-                     for _, row in heatmap_data.iterrows() if row["Postcode"] in POSTCODE_COORDS]
+        if postcode and not suburb and postcode in SUBURB_COORDS:
+            # Suburb-level heatmap for the postcode
+            heatmap_data = filtered_df[filtered_df["Suburb"].isin(SUBURB_COORDS[postcode].keys())].groupby("Suburb").agg({"Price": "median"}).reset_index()
+            heat_data = [
+                [SUBURB_COORDS[postcode][row["Suburb"]][0], SUBURB_COORDS[postcode][row["Suburb"]][1], row["Price"] / 1e6]
+                for _, row in heatmap_data.iterrows() if row["Suburb"] in SUBURB_COORDS[postcode]
+            ]
+        elif suburb:
+            # Single suburb heatmap
+            heatmap_data = filtered_df.groupby("Suburb").agg({"Price": "median"}).reset_index()
+            heat_data = [
+                [SUBURB_COORDS[postcode][row["Suburb"]][0], SUBURB_COORDS[postcode][row["Suburb"]][1], row["Price"] / 1e6]
+                for _, row in heatmap_data.iterrows() if row["Suburb"] == suburb and postcode in SUBURB_COORDS
+            ]
+        else:
+            # Region or postcode-level heatmap
+            heatmap_data = filtered_df[filtered_df["Postcode"].isin(POSTCODE_COORDS.keys())].groupby("Postcode").agg({"Price": "median"}).reset_index()
+            heat_data = [
+                [POSTCODE_COORDS[row["Postcode"]][0], POSTCODE_COORDS[row["Postcode"]][1], row["Price"] / 1e6]
+                for _, row in heatmap_data.iterrows() if row["Postcode"] in POSTCODE_COORDS
+            ]
+        
         if heat_data:
             HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
     postcode_coords_js = "var postcodeCoords = " + str(POSTCODE_COORDS).replace("'", '"') + ";"
+    suburb_coords_js = "var suburbCoords = " + str(SUBURB_COORDS).replace("'", '"') + ";"
     map_id = m._id
     
     js_code = f"""
     {postcode_coords_js}
+    {suburb_coords_js}
     var postcodeMarkers = {{}};
+    var suburbMarkers = {{}};
     console.log('Heatmap script loaded for map ID: {map_id}');
+
+    function clearMarkers(markerGroup) {{
+        for (var key in markerGroup) {{
+            if (markerGroup[key]) {{
+                markerGroup[key].remove();
+                delete markerGroup[key];
+            }}
+        }}
+    }}
+
     function showRegionPostcodes(region) {{
         console.log('showRegionPostcodes called with region: ' + region);
         var map = window.map_{map_id} || L.map('{map_id}');
@@ -275,13 +328,10 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
             return;
         }}
         console.log('Map accessed: ', map);
-        for (var pc in postcodeMarkers) {{
-            if (postcodeMarkers[pc]) {{
-                map.removeLayer(postcodeMarkers[pc]);
-                delete postcodeMarkers[pc];
-                console.log('Removed marker for postcode: ' + pc);
-            }}
-        }}
+        
+        clearMarkers(postcodeMarkers);
+        clearMarkers(suburbMarkers);
+        
         var postcodes = {str(REGION_POSTCODE_LIST).replace("'", '"')}[region];
         if (postcodes) {{
             console.log('Adding markers for postcodes: ' + postcodes);
@@ -296,8 +346,13 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
                         }})
                     }}).addTo(map);
                     marker.bindPopup(
-                        `<a href="#" onclick="window.parent.document.getElementById('postcode').value='${{pc}}'; window.parent.document.forms[0].submit();">${{pc}}</a>`
-                    );
+                        `<a href="#" onclick="showSuburbMarkers('${{pc}}'); return false;">${{pc}}</a>`
+                    ).on('click', function(e) {{
+                        console.log('Postcode marker clicked: ' + pc);
+                        showSuburbMarkers(pc);
+                        window.parent.document.getElementById('postcode').value = pc;
+                        window.parent.document.forms[0].submit();
+                    }});
                     postcodeMarkers[pc] = marker;
                     bounds.push(postcodeCoords[pc]);
                     console.log('Added marker for postcode: ' + pc + ' at ' + postcodeCoords[pc]);
@@ -311,10 +366,55 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
             console.error('No postcodes found for region: ' + region);
         }}
     }}
+
+    function showSuburbMarkers(postcode) {{
+        console.log('showSuburbMarkers called with postcode: ' + postcode);
+        var map = window.map_{map_id} || L.map('{map_id}');
+        if (!map) {{
+            console.error('Map not found for ID: {map_id}');
+            return;
+        }}
+        
+        clearMarkers(postcodeMarkers);
+        clearMarkers(suburbMarkers);
+        
+        var suburbs = suburbCoords[postcode];
+        if (suburbs) {{
+            console.log('Adding markers for suburbs in postcode: ' + postcode);
+            var bounds = [];
+            for (var suburb in suburbs) {{
+                var coords = suburbs[suburb];
+                var marker = L.marker(coords, {{
+                    icon: L.icon({{
+                        iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+                        iconSize: [25, 41],
+                        iconAnchor: [12, 41]
+                    }})
+                }}).addTo(map);
+                marker.bindPopup(
+                    `<a href="#" onclick="window.parent.document.getElementById('suburb').value='${{suburb}}'; window.parent.document.forms[0].submit(); return false;">${{suburb}}</a>`
+                );
+                suburbMarkers[suburb] = marker;
+                bounds.push(coords);
+                console.log('Added marker for suburb: ' + suburb + ' at ' + coords);
+            }}
+            if (bounds.length > 0) {{
+                map.fitBounds(bounds);
+                console.log('Map bounds adjusted to: ', bounds);
+            }}
+        }} else {{
+            console.error('No suburb coordinates found for postcode: ' + postcode);
+        }}
+    }}
+
     window.addEventListener('load', function() {{
         console.log('Window loaded for map ID: {map_id}');
         var selectedRegion = '{region or ""}';
-        if (selectedRegion) {{
+        var selectedPostcode = '{postcode or ""}';
+        if (selectedPostcode && !'{suburb or ""}') {{
+            console.log('Initial load for postcode: ' + selectedPostcode);
+            showSuburbMarkers(selectedPostcode);
+        }} else if (selectedRegion) {{
             console.log('Initial load for region: ' + selectedRegion);
             showRegionPostcodes(selectedRegion);
         }}
@@ -361,6 +461,7 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
 
 @lru_cache(maxsize=32)
 def generate_charts_cached(region=None, postcode=None, suburb=None):
+    df = load_property_data()
     filtered_df = df.copy()
     if region:
         filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))]
@@ -450,11 +551,16 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
     
     return median_chart_path, price_hist_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path
 
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "ok"}), 200
+
 @app.route('/', methods=["GET", "POST"])
 def index():
     start_time = time.time()
     logging.info("Starting index route")
     
+    df = load_property_data()
     selected_region = request.form.get("region", None) if request.method == "POST" else None
     selected_postcode = request.form.get("postcode", None) if request.method == "POST" else None
     selected_suburb = request.form.get("suburb", None) if request.method == "POST" else None
@@ -471,10 +577,8 @@ def index():
     if selected_property_type != "ALL":
         filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
     
-    # Generate heatmap (always needed)
     heatmap_path = generate_heatmap_cached(selected_region, selected_postcode, selected_suburb)
     
-    # Generate charts only when filters are applied
     median_chart_path = None
     price_hist_path = None
     region_timeline_path = None
@@ -566,6 +670,7 @@ def get_postcodes():
 
 @app.route('/get_suburbs')
 def get_suburbs():
+    df = load_property_data()
     region = request.args.get('region')
     postcode = request.args.get('postcode')
     filtered_df = df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))]
