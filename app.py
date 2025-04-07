@@ -8,6 +8,10 @@ from collections import Counter
 from functools import lru_cache
 import sys
 import time
+import warnings
+
+# Suppress FutureWarning from pandas about pd.concat behavior
+warnings.filterwarnings("ignore", category=FutureWarning, message=".*exclude empty or all-NA columns.*")
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -98,7 +102,7 @@ def load_property_data():
                             with zipfile.ZipFile(io.BytesIO(nested_zip_file.read())) as nested_zip:
                                 dat_files = [f for f in nested_zip.namelist() if f.endswith('.DAT')]
                                 for dat_file in dat_files:
-                                    logging.info(f"Reading {dat_file}")
+                                    # Removed: logging.info(f"Reading {dat_file}")
                                     try:
                                         with nested_zip.open(dat_file) as f:
                                             lines = f.read().decode('latin1').splitlines()
