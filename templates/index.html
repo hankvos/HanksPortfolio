@@ -56,6 +56,16 @@
                     document.getElementById("loading").style.display = "none";
                 });
         }
+
+        function handleRegionClick(region) {
+            console.log('Clicked region: "' + region + '"');
+            document.getElementById("loading").style.display = "block";
+            document.getElementById('region').value = region;
+            document.getElementById('postcode').value = '';
+            document.getElementById('suburb').value = '';
+            updatePostcodes();
+            document.forms[0].submit();
+        }
     </script>
 </head>
 <body>

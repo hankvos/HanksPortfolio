@@ -301,127 +301,7 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
         if heat_data:
             HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
-    postcode_coords_js = "var postcodeCoords = " + str(POSTCODE_COORDS).replace("'", '"') + ";"
-    suburb_coords_js = "var suburbCoords = " + str(SUBURB_COORDS).replace("'", '"') + ";"
-    map_id = m._id
-    
-    js_code = f"""
-    {postcode_coords_js}
-    {suburb_coords_js}
-    var postcodeMarkers = {{}};
-    var suburbMarkers = {{}};
-    console.log('Heatmap script loaded for map ID: {map_id}');
-
-    function clearMarkers(markerGroup) {{
-        for (var key in markerGroup) {{
-            if (markerGroup[key]) {{
-                markerGroup[key].remove();
-                delete markerGroup[key];
-            }}
-        }}
-    }}
-
-    function showRegionPostcodes(region) {{
-        console.log('showRegionPostcodes called with region: ' + region);
-        var map = window.map_{map_id} || L.map('{map_id}');
-        if (!map) {{
-            console.error('Map not found for ID: {map_id}');
-            return;
-        }}
-        console.log('Map accessed: ', map);
-        
-        clearMarkers(postcodeMarkers);
-        clearMarkers(suburbMarkers);
-        
-        var postcodes = {str(REGION_POSTCODE_LIST).replace("'", '"')}[region];
-        if (postcodes) {{
-            console.log('Adding markers for postcodes: ' + postcodes);
-            var bounds = [];
-            postcodes.forEach(function(pc) {{
-                if (postcodeCoords[pc]) {{
-                    var marker = L.marker(postcodeCoords[pc], {{
-                        icon: L.icon({{
-                            iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-                            iconSize: [25, 41],
-                            iconAnchor: [12, 41]
-                        }})
-                    }}).addTo(map);
-                    marker.bindPopup(
-                        `<a href="#" onclick="showSuburbMarkers('${{pc}}'); return false;">${{pc}}</a>`
-                    ).on('click', function(e) {{
-                        console.log('Postcode marker clicked: ' + pc);
-                        showSuburbMarkers(pc);
-                        window.parent.document.getElementById('postcode').value = pc;
-                        window.parent.document.forms[0].submit();
-                    }});
-                    postcodeMarkers[pc] = marker;
-                    bounds.push(postcodeCoords[pc]);
-                    console.log('Added marker for postcode: ' + pc + ' at ' + postcodeCoords[pc]);
-                }}
-            }});
-            if (bounds.length > 0) {{
-                map.fitBounds(bounds);
-                console.log('Map bounds adjusted to: ', bounds);
-            }}
-        }} else {{
-            console.error('No postcodes found for region: ' + region);
-        }}
-    }}
-
-    function showSuburbMarkers(postcode) {{
-        console.log('showSuburbMarkers called with postcode: ' + postcode);
-        var map = window.map_{map_id} || L.map('{map_id}');
-        if (!map) {{
-            console.error('Map not found for ID: {map_id}');
-            return;
-        }}
-        
-        clearMarkers(postcodeMarkers);
-        clearMarkers(suburbMarkers);
-        
-        var suburbs = suburbCoords[postcode];
-        if (suburbs) {{
-            console.log('Adding markers for suburbs in postcode: ' + postcode);
-            var bounds = [];
-            for (var suburb in suburbs) {{
-                var coords = suburbs[suburb];
-                var marker = L.marker(coords, {{
-                    icon: L.icon({{
-                        iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-                        iconSize: [25, 41],
-                        iconAnchor: [12, 41]
-                    }})
-                }}).addTo(map);
-                marker.bindPopup(
-                    `<a href="#" onclick="window.parent.document.getElementById('suburb').value='${{suburb}}'; window.parent.document.forms[0].submit(); return false;">${{suburb}}</a>`
-                );
-                suburbMarkers[suburb] = marker;
-                bounds.push(coords);
-                console.log('Added marker for suburb: ' + suburb + ' at ' + coords);
-            }}
-            if (bounds.length > 0) {{
-                map.fitBounds(bounds);
-                console.log('Map bounds adjusted to: ', bounds);
-            }}
-        }} else {{
-            console.error('No suburb coordinates found for postcode: ' + postcode);
-        }}
-    }}
-
-    window.addEventListener('load', function() {{
-        console.log('Window loaded for map ID: {map_id}');
-        var selectedRegion = '{region or ""}';
-        var selectedPostcode = '{postcode or ""}';
-        if (selectedPostcode && !'{suburb or ""}') {{
-            console.log('Initial load for postcode: ' + selectedPostcode);
-            showSuburbMarkers(selectedPostcode);
-        }} else if (selectedRegion) {{
-            console.log('Initial load for region: ' + selectedRegion);
-            showRegionPostcodes(selectedRegion);
-        }}
-    }});
-    """
-    
+    # Add markers with simpler popups
     for i, (region_name, postcodes) in enumerate(REGION_POSTCODE_LIST.items()):
         center = REGION_CENTERS.get(region_name)
         if center:
@@ -430,21 +310,7 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
                 lon -= 0.5
             popup_html = f"""
             <div>
-                <a href="#" id="region-{region_name.replace(' ', '-')}">{region_name}</a>
-                <script>
-                document.getElementById('region-{region_name.replace(' ', '-')}').addEventListener('click', function(e) {{
-                    e.preventDefault();
-                    console.log('Clicked region: "{region_name}"');
-                    showRegionPostcodes('{region_name}');
-                    setTimeout(function() {{
-                        window.parent.document.getElementById('region').value = '{region_name}';
-                        window.parent.document.getElementById('postcode').value = '';
-                        window.parent.document.getElementById('suburb').value = '';
-                        window.parent.updatePostcodes();
-                        window.parent.document.forms[0].submit();
-                    }}, 2000);
-                }});
-                </script>
+                <a href="#" onclick="parent.handleRegionClick('{region_name}'); return false;">{region_name}</a>
             </div>
             """
             folium.Marker(
@@ -454,7 +320,6 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
                 icon=folium.Icon(color="blue", icon="info-sign")
             ).add_to(m)
     
-    m.get_root().script.add_child(folium.Element(js_code))
     m.save(heatmap_path)
     elapsed_time = time.time() - start_time
     logging.info(f"Heatmap generated and saved to {heatmap_path} in {elapsed_time:.2f} seconds")
