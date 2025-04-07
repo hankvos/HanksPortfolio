@@ -15,7 +15,7 @@ import numpy as np
 from scipy import stats
 from flask import Flask, render_template, request, jsonify, send_from_directory, redirect, url_for
 import folium
-from folium.plugins import HeatMap  # Added explicit import for HeatMap
+from folium.plugins import HeatMap
 
 app = Flask(__name__)
 
@@ -298,9 +298,8 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
             ]
         
         if heat_data:
-            HeatMap(heat_data, radius=15, blur=20).add_to(m)  # Use HeatMap directly
+            HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
-    # Add markers with IFrame popups
     for i, (region_name, postcodes) in enumerate(REGION_POSTCODE_LIST.items()):
         center = REGION_CENTERS.get(region_name)
         if center:
@@ -309,7 +308,7 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
                 lon -= 0.5
             popup_html = f"""
             <div>
-                <a href="#" onclick="parent.handleRegionClick('{region_name}'); console.log('Clicked {region_name}'); return false;">{region_name}</a>
+                <a href="#" onclick="parent.handleRegionClick('{region_name}'); return false;">{region_name}</a>
             </div>
             """
             iframe = folium.IFrame(html=popup_html, width=200, height=50)
@@ -558,7 +557,19 @@ def hot_suburbs():
         return redirect(url_for('index'), code=307)  # Preserve POST data
 
     df = load_property_data()
-    suburb_medians = df.groupby("Suburb")["Price"].median().reset_index()
+    # Filter to only six regions
+    allowed_postcodes = set().union(*REGION_POSTCODE_LIST.values())
+    filtered_df = df[df["Postcode"].isin(allowed_postcodes)]
+    # Create a mapping of postcode to region
+    postcode_to_region = {}
+    for region, postcodes in REGION_POSTCODE_LIST.items():
+        for pc in postcodes:
+            postcode_to_region[pc] = region
+    # Group by suburb and postcode, calculate median price
+    suburb_medians = filtered_df.groupby(["Suburb", "Postcode"])["Price"].median().reset_index()
+    # Add region column
+    suburb_medians["Region"] = suburb_medians["Postcode"].map(postcode_to_region)
+    # Filter for median price < $900,000 and sort
     hot_suburbs_df = suburb_medians[suburb_medians["Price"] < 900000].sort_values(by="Price")
     hot_suburbs_list = hot_suburbs_df.to_dict(orient="records")
     
@@ -580,11 +591,10 @@ def hot_suburbs():
 def static_files(filename):
     return send_from_directory(app.static_folder, filename)
 
-# Load data and pre-generate charts at startup
 logging.info("Initializing application...")
 load_property_data()
 pre_generate_charts()
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10000))  # Default to 10000 for Render
+    port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
