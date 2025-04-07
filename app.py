@@ -7,6 +7,7 @@ from datetime import datetime
 from collections import Counter
 from functools import lru_cache
 import sys
+import time
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -237,6 +238,7 @@ def generate_suburb_median_chart(postcode):
 
 @lru_cache(maxsize=32)
 def generate_heatmap_cached(region=None, postcode=None, suburb=None):
+    start_time = time.time()
     logging.info(f"Starting heatmap generation for region={region}, postcode={postcode}, suburb={suburb}")
     filtered_df = df.copy()
     if region:
@@ -353,7 +355,8 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
     
     m.get_root().script.add_child(folium.Element(js_code))
     m.save(heatmap_path)
-    logging.info(f"Heatmap generated and saved to {heatmap_path}")
+    elapsed_time = time.time() - start_time
+    logging.info(f"Heatmap generated and saved to {heatmap_path} in {elapsed_time:.2f} seconds")
     return f"/static/{os.path.basename(heatmap_path)}"
 
 @lru_cache(maxsize=32)
@@ -449,6 +452,9 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
 
 @app.route('/', methods=["GET", "POST"])
 def index():
+    start_time = time.time()
+    logging.info("Starting index route")
+    
     selected_region = request.form.get("region", None) if request.method == "POST" else None
     selected_postcode = request.form.get("postcode", None) if request.method == "POST" else None
     selected_suburb = request.form.get("suburb", None) if request.method == "POST" else None
@@ -465,15 +471,26 @@ def index():
     if selected_property_type != "ALL":
         filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
     
+    # Generate heatmap (always needed)
     heatmap_path = generate_heatmap_cached(selected_region, selected_postcode, selected_suburb)
-    median_chart_path, price_hist_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path = generate_charts_cached(selected_region, selected_postcode, selected_suburb)
-    region_median_chart_path = generate_region_median_chart() if not (selected_region or selected_postcode or selected_suburb) else None
+    
+    # Generate charts only when filters are applied
+    median_chart_path = None
+    price_hist_path = None
+    region_timeline_path = None
+    postcode_timeline_path = None
+    suburb_timeline_path = None
+    region_median_chart_path = None
     postcode_median_chart_path = None
     suburb_median_chart_path = None
-    if selected_region and not selected_postcode:
+    
+    if selected_region or selected_postcode or selected_suburb:
+        median_chart_path, price_hist_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path = generate_charts_cached(selected_region, selected_postcode, selected_suburb)
+    if not selected_region and not selected_postcode and not selected_suburb:
+        region_median_chart_path = generate_region_median_chart()
+    elif selected_region and not selected_postcode and not selected_suburb:
         postcode_median_chart_path = generate_postcode_median_chart(region=selected_region)
-    elif selected_postcode:
-        postcode_median_chart_path = generate_postcode_median_chart(postcode=selected_postcode)
+    elif selected_postcode and not selected_suburb:
         suburb_median_chart_path = generate_suburb_median_chart(selected_postcode)
     
     properties = None
@@ -513,6 +530,9 @@ def index():
         "median": filtered_df["Price"].median(),
         "std": filtered_df["Price"].std()
     } if not filtered_df.empty else {}
+    
+    elapsed_time = time.time() - start_time
+    logging.info(f"Index route completed in {elapsed_time:.2f} seconds")
     
     return render_template("index.html", 
                            regions=REGION_POSTCODE_LIST.keys(),
