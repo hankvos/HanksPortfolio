@@ -2,12 +2,26 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Property Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NSW Property Sales</title>
     <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f0f0f0;
+        }
+        h1, h2, h3 {
+            color: #333;
+        }
+        select, input[type="submit"] {
+            padding: 5px;
+            margin: 5px;
+        }
         table {
             border-collapse: collapse;
             width: 100%;
             margin-top: 20px;
+            background-color: white;
         }
         th, td {
             border: 1px solid #ddd;
@@ -15,87 +29,101 @@
             text-align: left;
         }
         th {
+            background-color: #4CAF50;
+            color: white;
+        }
+        tr:nth-child(even) {
             background-color: #f2f2f2;
         }
         .chart-container {
             margin: 20px 0;
         }
+        iframe {
+            width: 100%;
+            height: 600px;
+            border: none;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
     </style>
     <script>
-        function handleRegionClick(region) {
-            console.log("Region clicked: " + region);
-            document.getElementById("region_select").value = region;
-            document.getElementById("property_form").submit();
-        }
-
         function updatePostcodes() {
-            var region = document.getElementById("region_select").value;
-            fetch('/get_postcodes?region=' + encodeURIComponent(region))
+            const region = document.getElementById('region').value;
+            fetch(`/get_postcodes?region=${region}`)
                 .then(response => response.json())
-                .then(postcodes => {
-                    var postcodeSelect = document.getElementById("postcode_select");
+                .then(data => {
+                    const postcodeSelect = document.getElementById('postcode');
                     postcodeSelect.innerHTML = '<option value="">Select Postcode</option>';
-                    postcodes.forEach(pc => {
-                        postcodeSelect.innerHTML += `<option value="${pc}">${pc}</option>`;
-                    });
+                    if (Array.isArray(data)) {
+                        data.forEach(postcode => {
+                            const option = document.createElement('option');
+                            option.value = postcode;
+                            option.text = postcode;
+                            postcodeSelect.appendChild(option);
+                        });
+                    }
                     updateSuburbs();
                 });
         }
 
         function updateSuburbs() {
-            var region = document.getElementById("region_select").value;
-            var postcode = document.getElementById("postcode_select").value;
-            fetch('/get_suburbs?region=' + encodeURIComponent(region) + '&postcode=' + encodeURIComponent(postcode))
+            const region = document.getElementById('region').value;
+            const postcode = document.getElementById('postcode').value;
+            fetch(`/get_suburbs?region=${region}&postcode=${postcode}`)
                 .then(response => response.json())
-                .then(suburbs => {
-                    var suburbSelect = document.getElementById("suburb_select");
+                .then(data => {
+                    const suburbSelect = document.getElementById('suburb');
                     suburbSelect.innerHTML = '<option value="">Select Suburb</option>';
-                    suburbs.forEach(suburb => {
-                        suburbSelect.innerHTML += `<option value="${suburb}">${suburb}</option>`;
-                    });
+                    if (Array.isArray(data)) {
+                        data.forEach(suburb => {
+                            const option = document.createElement('option');
+                            option.value = suburb;
+                            option.text = suburb;
+                            suburbSelect.appendChild(option);
+                        });
+                    }
                 });
         }
     </script>
 </head>
 <body>
-    <h1>Property Dashboard</h1>
-    <p>Data Source: {{ data_source }}</p>
-    <a href="/hot_suburbs">View Hot Suburbs</a>
-
-    <form method="POST" id="property_form">
-        <label for="region_select">Region:</label>
-        <select name="region" id="region_select" onchange="updatePostcodes()">
+    <h1>NSW Property Sales</h1>
+    <form method="POST" action="/">
+        <label for="region">Region:</label>
+        <select name="region" id="region" onchange="updatePostcodes()">
             <option value="">Select Region</option>
             {% for region in regions %}
-                <option value="{{ region }}" {% if region == selected_region %}selected{% endif %}>{{ region }}</option>
+            <option value="{{ region }}" {% if region == selected_region %}selected{% endif %}>{{ region }}</option>
             {% endfor %}
         </select>
 
-        <label for="postcode_select">Postcode:</label>
-        <select name="postcode" id="postcode_select" onchange="updateSuburbs()">
+        <label for="postcode">Postcode:</label>
+        <select name="postcode" id="postcode" onchange="updateSuburbs()">
             <option value="">Select Postcode</option>
             {% for postcode in postcodes %}
-                <option value="{{ postcode }}" {% if postcode == selected_postcode %}selected{% endif %}>{{ postcode }}</option>
+            <option value="{{ postcode }}" {% if postcode == selected_postcode %}selected{% endif %}>{{ postcode }}</option>
             {% endfor %}
         </select>
 
-        <label for="suburb_select">Suburb:</label>
-        <select name="suburb" id="suburb_select">
+        <label for="suburb">Suburb:</label>
+        <select name="suburb" id="suburb">
             <option value="">Select Suburb</option>
             {% for suburb in suburbs %}
-                <option value="{{ suburb }}" {% if suburb == selected_suburb %}selected{% endif %}>{{ suburb }}</option>
+            <option value="{{ suburb }}" {% if suburb == selected_suburb %}selected{% endif %}>{{ suburb }}</option>
             {% endfor %}
         </select>
 
-        <label for="property_type_select">Property Type:</label>
-        <select name="property_type" id="property_type_select">
-            {% for pt in property_types %}
-                <option value="{{ pt }}" {% if pt == selected_property_type %}selected{% endif %}>{{ pt }}</option>
+        <label for="property_type">Property Type:</label>
+        <select name="property_type" id="property_type">
+            {% for type in property_types %}
+            <option value="{{ type }}" {% if type == selected_property_type %}selected{% endif %}>{{ type }}</option>
             {% endfor %}
         </select>
 
-        <label for="sort_by_select">Sort By:</label>
-        <select name="sort_by" id="sort_by_select">
+        <label for="sort_by">Sort By:</label>
+        <select name="sort_by" id="sort_by">
             <option value="Settlement Date" {% if sort_by == "Settlement Date" %}selected{% endif %}>Settlement Date</option>
             <option value="Price" {% if sort_by == "Price" %}selected{% endif %}>Price</option>
             <option value="Address" {% if sort_by == "Address" %}selected{% endif %}>Address</option>
@@ -104,121 +132,128 @@
         <input type="submit" value="Filter">
     </form>
 
+    <p><a href="/hot_suburbs">View Hot Suburbs (Median Price < $900,000)</a></p>
+
     {% if error %}
-        <p style="color: red;">{{ error }}</p>
-    {% endif %}
-
-    {% if heatmap_path %}
-        <div class="chart-container">
-            <h2>Heatmap</h2>
-            <iframe src="{{ heatmap_path }}" width="100%" height="600"></iframe>
-        </div>
-    {% endif %}
-
-    {% if hot_suburbs %}
-        <h2>Hot Suburbs (Median Price < $900,000)</h2>
-        <table>
-            <tr>
-                <th>Suburb</th>
-                <th>Postcode</th>
-                <th>Region</th>
-                <th>Median Price</th>
-            </tr>
-            {% for suburb in hot_suburbs %}
-            <tr>
-                <td>
-                    <form method="POST" action="/" style="display:inline;">
-                        <input type="hidden" name="suburb" value="{{ suburb.Suburb }}">
-                        <input type="hidden" name="property_type" value="HOUSE">
-                        <input type="hidden" name="sort_by" value="Settlement Date">
-                        <a href="#" onclick="this.parentNode.submit(); return false;">{{ suburb.Suburb }}</a>
-                    </form>
-                </td>
-                <td>{{ suburb.Postcode }}</td>
-                <td>{{ suburb.Region }}</td>
-                <td>${{ suburb.Price | int }}</td>
-            </tr>
-            {% endfor %}
-        </table>
+    <p class="error">{{ error }}</p>
     {% endif %}
 
     {% if properties %}
-        <h2>Properties (Average Price: ${{ avg_price | int }})</h2>
-        <p>Stats - Mean: ${{ stats.mean | int }}, Median: ${{ stats.median | int }}, Std Dev: ${{ stats.std | int }}</p>
-        <table>
-            <tr>
-                <th>Address</th>
-                <th>Price</th>
-                <th>Settlement Date</th>
-                <th>Block Size (m²)</th>
-                <th>Map Link</th>
-            </tr>
-            {% for prop in properties %}
-            <tr>
-                <td>{{ prop.Address }}</td>
-                <td>${{ prop.Price | int }}</td>
-                <td>{{ prop["Settlement Date"] }}</td>
-                <td>{{ prop["Block Size"] | default('N/A') }}</td>
-                <td><a href="{{ prop['Map Link'] }}" target="_blank">View on Map</a></td>
-            </tr>
-            {% endfor %}
-        </table>
+    <h2>Properties {% if avg_price %}(Average Price: {{ avg_price | currency }}){% endif %}</h2>
+    {% if stats %}
+    <p>Stats - Mean: {{ stats.mean | currency }}, Median: {{ stats.median | currency }}, Std Dev: {{ stats.std | currency }}</p>
+    {% endif %}
+    <table>
+        <tr>
+            <th>Address</th>
+            <th>Price</th>
+            <th>Settlement Date</th>
+            <th>Block Size (m²)</th>
+            <th>Map Link</th>
+        </tr>
+        {% for prop in properties %}
+        <tr>
+            <td>{{ prop.Address }}</td>
+            <td>{{ prop.Price | currency }}</td>
+            <td>{{ prop['Settlement Date'] }}</td>
+            <td>{{ prop['Block Size'] | floatformat(1) }}</td>
+            <td><a href="{{ prop['Map Link'] }}" target="_blank">View on Map</a></td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+
+    {% if hot_suburbs %}
+    <h2>Hot Suburbs (Median Price < $900,000)</h2>
+    <table>
+        <tr>
+            <th>Suburb</th>
+            <th>Postcode</th>
+            <th>Region</th>
+            <th>Median Price</th>
+        </tr>
+        {% for suburb in hot_suburbs %}
+        <tr>
+            <td>
+                <a href="/" onclick="document.getElementById('suburbForm_{{ loop.index }}').submit(); return false;">
+                    {{ suburb.Suburb }}
+                </a>
+                <form id="suburbForm_{{ loop.index }}" method="POST" action="/" style="display:none;">
+                    <input type="hidden" name="suburb" value="{{ suburb.Suburb }}">
+                    <input type="hidden" name="postcode" value="{{ suburb.Postcode }}">
+                </form>
+            </td>
+            <td>{{ suburb.Postcode }}</td>
+            <td>{{ suburb.Region }}</td>
+            <td>{{ suburb.Price | currency }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+
+    {% if heatmap_path %}
+    <div class="chart-container">
+        <h3>Heatmap</h3>
+        <iframe src="{{ heatmap_path }}"></iframe>
+    </div>
     {% endif %}
 
     {% if median_chart_path %}
-        <div class="chart-container">
-            <h2>Median House Price Over Time</h2>
-            <img src="{{ median_chart_path }}" alt="Median House Price Chart">
-        </div>
+    <div class="chart-container">
+        <h3>Median House Price Over Time</h3>
+        <img src="{{ median_chart_path }}" alt="Median House Price Chart">
+    </div>
     {% endif %}
 
     {% if price_hist_path %}
-        <div class="chart-container">
-            <h2>Price Histogram</h2>
-            <img src="{{ price_hist_path }}" alt="Price Histogram">
-        </div>
+    <div class="chart-container">
+        <h3>Price Histogram</h3>
+        <img src="{{ price_hist_path }}" alt="Price Histogram">
+    </div>
     {% endif %}
 
     {% if region_timeline_path %}
-        <div class="chart-container">
-            <h2>Region Price Timeline</h2>
-            <img src="{{ region_timeline_path }}" alt="Region Timeline">
-        </div>
+    <div class="chart-container">
+        <h3>Region Price Timeline</h3>
+        <img src="{{ region_timeline_path }}" alt="Region Price Timeline">
+    </div>
     {% endif %}
 
     {% if postcode_timeline_path %}
-        <div class="chart-container">
-            <h2>Postcode Price Timeline</h2>
-            <img src="{{ postcode_timeline_path }}" alt="Postcode Timeline">
-        </div>
+    <div class="chart-container">
+        <h3>Postcode Price Timeline</h3>
+        <img src="{{ postcode_timeline_path }}" alt="Postcode Price Timeline">
+    </div>
     {% endif %}
 
     {% if suburb_timeline_path %}
-        <div class="chart-container">
-            <h2>Suburb Price Timeline</h2>
-            <img src="{{ suburb_timeline_path }}" alt="Suburb Timeline">
-        </div>
+    <div class="chart-container">
+        <h3>Suburb Price Timeline</h3>
+        <img src="{{ suburb_timeline_path }}" alt="Suburb Price Timeline">
+    </div>
     {% endif %}
 
     {% if region_median_chart_path %}
-        <div class="chart-container">
-            <h2>Median Price by Region</h2>
-            <img src="{{ region_median_chart_path }}" alt="Region Median Prices">
-        </div>
+    <div class="chart-container">
+        <h3>Median Price by Region</h3>
+        <img src="{{ region_median_chart_path }}" alt="Region Median Prices">
+    </div>
     {% endif %}
 
     {% if postcode_median_chart_path %}
-        <div class="chart-container">
-            <h2>Median Price by Postcode</h2>
-            <img src="{{ postcode_median_chart_path }}" alt="Postcode Median Prices">
-        </div>
+    <div class="chart-container">
+        <h3>Median Price by Postcode</h3>
+        <img src="{{ postcode_median_chart_path }}" alt="Postcode Median Prices">
+    </div>
     {% endif %}
 
     {% if suburb_median_chart_path %}
-        <div class="chart-container">
-            <h2>Median Price by Suburb</h2>
-            <img src="{{ suburb_median_chart_path }}" alt="Suburb Median Prices">
-        </div>
+    <div class="chart-container">
+        <h3>Median Price by Suburb</h3>
+        <img src="{{ suburb_median_chart_path }}" alt="Suburb Median Prices">
+    </div>
     {% endif %}
+
+    <p>Data Source: {{ data_source }}</p>
 </body>
 </html>

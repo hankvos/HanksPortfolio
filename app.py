@@ -31,7 +31,7 @@ REGION_POSTCODE_LIST = {
     "Coffs Harbour - Grafton": ["2370", "2441", "2448", "2449", "2450", "2452", "2453", "2454", "2455", "2456", "2460", "2462", "2463", "2464", "2465", "2466", "2469"],
     "Hunter Valley excl Newcastle": ["2250", "2311", "2314", "2315", "2316", "2317", "2318", "2319", "2320", "2321", "2322", "2323", "2324", "2325", "2326", "2327", "2328", "2329", "2330", "2331", "2333", "2334", "2335", "2336", "2337", "2338", "2420", "2421", "2850"],
     "Newcastle and Lake Macquarie": ["2259", "2264", "2265", "2267", "2278", "2280", "2281", "2282", "2283", "2284", "2285", "2286", "2287", "2289", "2290", "2291", "2292", "2293", "2294", "2295", "2296", "2297", "2298", "2299", "2300", "2302", "2303", "2304", "2305", "2306", "2307", "2308", "2318", "2322", "2323"],
-    "Mid North Coast": ["2312", "2324", "2415", "2420", "2422", "2423", "2424", "2425", "2426", "2427", "2428", "2429", "2430", "2431", "2439", "2440", "2441", "2443", "2444", "2445", "2446", "2447", "2448", "2449", "2898"],
+    "Mid North Coast": ["2312", "2324", "2415", "2420", "2422", "2423", "2424", "2425", "2426", "2427", "2428", "2429", "2430", "2431", "2439", "2440", "2441", "2443", "2444", "2445", "2446", "2447", "2448", "244 Parts", "2898"],
     "Richmond - Tweed": ["2469", "2470", "2471", "2472", "2473", "2474", "2475", "2476", "2477", "2478", "2479", "2480", "2481", "2482", "2483", "2484", "2485", "2486", "2487", "2488", "2489", "2490"]
 }
 
@@ -67,6 +67,9 @@ SUBURB_COORDS = {
         "BUDGEWOI": [-33.23, 151.56],
         "DOYALSON": [-33.20, 151.52],
         "SAN REMO": [-33.21, 151.51]
+    },
+    "2443": {
+        "JOHNS RIVER": [-31.73, 152.70]  # Added for accuracy
     }
 }
 
@@ -74,9 +77,15 @@ df = None
 initial_load_complete = False
 data_loading_lock = threading.Lock()
 
+@app.template_filter('currency')
+def currency_filter(value):
+    if value is None or pd.isna(value):
+        return "N/A"
+    return "${:,.0f}".format(value)
+
 def load_property_data():
     global df, initial_load_complete
-    with data_loading_lock:  # Ensure only one thread loads data
+    with data_loading_lock:
         if initial_load_complete:
             return df
         
@@ -171,6 +180,7 @@ def load_property_data():
 
         df = result_df
         initial_load_complete = True
+        logging.info("Data load completed successfully")
         return df
 
 def generate_region_median_chart():
@@ -313,7 +323,10 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
                 lon -= 0.5
             popup_html = f"""
             <div>
-                <button onclick="parent.handleRegionClick('{region_name}')">{region_name}</button>
+                <form id="regionForm_{region_name}" method="POST" action="/">
+                    <input type="hidden" name="region" value="{region_name}">
+                    <button type="submit">{region_name}</button>
+                </form>
             </div>
             """
             iframe = folium.IFrame(html=popup_html, width=200, height=50)
@@ -366,7 +379,9 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
     
     plt.figure(figsize=(10, 6))
     house_df["Settlement Date"] = pd.to_datetime(house_df["Settlement Date"], format='%d/%m/%Y')
-    house_df.groupby(house_df["Settlement Date"].dt.to_period("M"))["Price"].median().plot()
+    monthly_medians = house_df.groupby(house_df["Settlement Date"].dt.to_period("M"))["Price"].median()
+    monthly_medians.index = monthly_medians.index.to_timestamp()
+    monthly_medians.plot()
     plt.title(title)
     plt.xlabel("Settlement Date")
     plt.ylabel("Price ($)")
@@ -386,8 +401,11 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
     region_timeline_path = None
     if region:
         plt.figure(figsize=(10, 6))
-        df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))]["Settlement Date"] = pd.to_datetime(df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))]["Settlement Date"], format='%d/%m/%Y')
-        df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))].groupby("Settlement Date")["Price"].median().plot()
+        region_df = df[df["Postcode"].isin(REGION_POSTCODE_LIST.get(region, []))]
+        region_df["Settlement Date"] = pd.to_datetime(region_df["Settlement Date"], format='%d/%m/%Y')
+        monthly_medians = region_df.groupby(region_df["Settlement Date"].dt.to_period("M"))["Price"].median()
+        monthly_medians.index = monthly_medians.index.to_timestamp()
+        monthly_medians.plot()
         plt.title(f"Region Price Timeline: {region}")
         plt.xlabel("Settlement Date")
         plt.ylabel("Price ($)")
@@ -398,8 +416,11 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
     postcode_timeline_path = None
     if postcode:
         plt.figure(figsize=(10, 6))
-        df[df["Postcode"] == postcode]["Settlement Date"] = pd.to_datetime(df[df["Postcode"] == postcode]["Settlement Date"], format='%d/%m/%Y')
-        df[df["Postcode"] == postcode].groupby("Settlement Date")["Price"].median().plot()
+        postcode_df = df[df["Postcode"] == postcode]
+        postcode_df["Settlement Date"] = pd.to_datetime(postcode_df["Settlement Date"], format='%d/%m/%Y')
+        monthly_medians = postcode_df.groupby(postcode_df["Settlement Date"].dt.to_period("M"))["Price"].median()
+        monthly_medians.index = monthly_medians.index.to_timestamp()
+        monthly_medians.plot()
         plt.title(f"Postcode Price Timeline: {postcode}")
         plt.xlabel("Settlement Date")
         plt.ylabel("Price ($)")
@@ -410,8 +431,11 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
     suburb_timeline_path = None
     if suburb:
         plt.figure(figsize=(10, 6))
-        df[df["Suburb"] == suburb]["Settlement Date"] = pd.to_datetime(df[df["Suburb"] == suburb]["Settlement Date"], format='%d/%m/%Y')
-        df[df["Suburb"] == suburb].groupby("Settlement Date")["Price"].median().plot()
+        suburb_df = df[df["Suburb"] == suburb]
+        suburb_df["Settlement Date"] = pd.to_datetime(suburb_df["Settlement Date"], format='%d/%m/%Y')
+        monthly_medians = suburb_df.groupby(suburb_df["Settlement Date"].dt.to_period("M"))["Price"].median()
+        monthly_medians.index = monthly_medians.index.to_timestamp()
+        monthly_medians.plot()
         plt.title(f"Suburb Price Timeline: {suburb}")
         plt.xlabel("Settlement Date")
         plt.ylabel("Price ($)")
@@ -449,7 +473,7 @@ def index():
     logging.info(f"Request method: {request.method}, Form data: {request.form}")
     
     if not initial_load_complete:
-        return render_template("loading.html")  # Serve a loading page
+        return render_template("loading.html")
     
     df = load_property_data()
     selected_region = request.form.get("region", None) if request.method == "POST" else None
@@ -581,15 +605,12 @@ def hot_suburbs():
         return render_template("loading.html")
     
     if request.method == "POST":
-        return redirect(url_for('index'), code=307)  # Preserve POST data
+        return redirect(url_for('index'), code=307)
 
     df = load_property_data()
     allowed_postcodes = set().union(*REGION_POSTCODE_LIST.values())
     filtered_df = df[df["Postcode"].isin(allowed_postcodes)]
-    postcode_to_region = {}
-    for region, postcodes in REGION_POSTCODE_LIST.items():
-        for pc in postcodes:
-            postcode_to_region[pc] = region
+    postcode_to_region = {pc: region for region, postcodes in REGION_POSTCODE_LIST.items() for pc in postcodes}
     suburb_medians = filtered_df.groupby(["Suburb", "Postcode"])["Price"].median().reset_index()
     suburb_medians["Region"] = suburb_medians["Postcode"].map(postcode_to_region)
     hot_suburbs_df = suburb_medians[suburb_medians["Price"] < 900000].sort_values(by="Price")
@@ -613,12 +634,10 @@ def hot_suburbs():
 def static_files(filename):
     return send_from_directory(app.static_folder, filename)
 
-# Start data loading in background on Render
 if os.environ.get("RENDER"):
     threading.Thread(target=load_data_async, daemon=True).start()
     threading.Thread(target=pre_generate_charts_async, daemon=True).start()
 else:
-    # Local dev: run synchronously
     load_property_data()
     pre_generate_charts()
 
