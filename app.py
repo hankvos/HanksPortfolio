@@ -79,7 +79,7 @@ def load_property_data():
         return df
     
     start_time = time.time()
-    logging.info("Loading property data at startup...")
+    logging.info("Loading property data in background...")
     zip_files = [f for f in os.listdir() if f.endswith('.zip')]
     if not zip_files:
         logging.error("No ZIP files found in the directory.")
@@ -702,12 +702,11 @@ def get_suburbs():
 def static_files(filename):
     return send_from_directory(app.static_folder, filename)
 
-# Preload data at module level (before app.run)
+# Start data loading in a background thread
 logging.info("Initializing application...")
-load_property_data()  # Load data once at startup
+threading.Thread(target=load_property_data, daemon=True).start()
 threading.Thread(target=pre_generate_charts, daemon=True).start()
-logging.info("Data preload and chart pre-generation initiated.")
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 10000))  # Default to 10000 for Render
     app.run(host='0.0.0.0', port=port, debug=False)
