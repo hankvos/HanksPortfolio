@@ -20,13 +20,17 @@ from folium.plugins import HeatMap
 
 app = Flask(__name__)
 
-# Configure logging to capture all levels and output to stdout
+# Configure logging with dynamic level from environment variable
+log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.DEBUG,  # Changed to DEBUG for more detail
+    level=getattr(logging, log_level, logging.INFO),
     stream=sys.stdout,
     format='%(levelname)s:%(name)s:%(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Suppress Matplotlib font debug messages
+logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
 REGION_POSTCODE_LIST = {
     "Central Coast": ["2083", "2250", "2251", "2256", "2257", "2258", "2259", "2260", "2261", "2262", "2263", "2775"],
@@ -164,7 +168,6 @@ def load_property_data():
                                                     temp_df = temp_df[temp_df["Settlement Date"].dt.year >= 2024]
                                                     temp_df["Settlement Date"] = temp_df["Settlement Date"].dt.strftime('%d/%m/%Y')
                                                     temp_df = temp_df[temp_df["Postcode"].isin(ALLOWED_POSTCODES)]
-                                                    # Filter out empty or all-NA DataFrames before concat (fixes pandas FutureWarning)
                                                     if not temp_df.empty and not temp_df.isna().all().all():
                                                         result_df = pd.concat([result_df, temp_df], ignore_index=True)
                                         except Exception as e:
@@ -201,7 +204,6 @@ def generate_region_median_chart():
             return None
         regions, prices = zip(*sorted(median_prices.items(), key=lambda x: x[1]))
         plt.figure(figsize=(10, 6))
-        # Convert prices to numeric explicitly (fixes matplotlib warning)
         prices = pd.to_numeric(prices, errors='coerce')
         plt.bar(regions, prices)
         plt.title("Median Price by Region")
@@ -244,7 +246,7 @@ def generate_postcode_median_chart(region=None, postcode=None):
         
         pcs, prices = zip(*sorted(median_prices.items(), key=lambda x: x[1]))
         plt.figure(figsize=(10, 6))
-        prices = pd.to_numeric(prices, errors='coerce')  # Ensure numeric for plotting
+        prices = pd.to_numeric(prices, errors='coerce')
         plt.bar(pcs, prices)
         plt.title(f"Median Price by Postcode ({region or postcode})")
         plt.xlabel("Postcode")
@@ -275,7 +277,7 @@ def generate_suburb_median_chart(postcode):
         
         suburbs, prices = zip(*sorted(median_prices.items(), key=lambda x: x[1]))
         plt.figure(figsize=(10, 6))
-        prices = pd.to_numeric(prices, errors='coerce')  # Ensure numeric for plotting
+        prices = pd.to_numeric(prices, errors='coerce')
         plt.bar(suburbs, prices)
         plt.title(f"Median Price by Suburb (Postcode {postcode})")
         plt.xlabel("Suburb")
@@ -406,7 +408,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
         house_df["Settlement Date"] = pd.to_datetime(house_df["Settlement Date"], format='%d/%m/%Y')
         monthly_medians = house_df.groupby(house_df["Settlement Date"].dt.to_period("M"))["Price"].median()
         monthly_medians.index = monthly_medians.index.to_timestamp()
-        monthly_medians = pd.to_numeric(monthly_medians, errors='coerce')  # Ensure numeric for plotting
+        monthly_medians = pd.to_numeric(monthly_medians, errors='coerce')
         monthly_medians.plot()
         plt.title(title)
         plt.xlabel("Settlement Date")
@@ -416,7 +418,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
         plt.close()
         
         plt.figure(figsize=(10, 6))
-        filtered_df["Price"] = pd.to_numeric(filtered_df["Price"], errors='coerce')  # Ensure numeric for histogram
+        filtered_df["Price"] = pd.to_numeric(filtered_df["Price"], errors='coerce')
         filtered_df["Price"].hist(bins=30)
         plt.title("Price Histogram")
         plt.xlabel("Price ($)")
@@ -513,7 +515,6 @@ def health_check():
 def index():
     start_time = time.time()
     logger.info("Starting index route")
-    logger.debug(f"Request method: {request.method}, Form data: {request.form}")
     
     try:
         if not initial_load_complete:
