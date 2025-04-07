@@ -32,11 +32,6 @@
                     });
                 });
         }
-
-        function showHotSuburbs() {
-            document.getElementById("hot_suburbs").value = "true";
-            document.forms[0].submit();
-        }
     </script>
 </head>
 <body>
@@ -86,30 +81,13 @@
                     <option value="Settlement Date" {% if sort_by == "Settlement Date" %}selected{% endif %}>Settlement Date</option>
                 </select>
 
-                <input type="hidden" id="hot_suburbs" name="hot_suburbs" value="false">
                 <button type="submit">Filter</button>
-                <button type="button" onclick="showHotSuburbs()">HOT SUBURBS</button>
             </form>
             {% if error %}
                 <p class="error">Error: {{ error }}</p>
             {% endif %}
         </div>
         <div class="right-column">
-            {% if show_hot_suburbs and hot_suburbs %}
-                <h2>Hot Suburbs (Median Price < $1,000,000)</h2>
-                <table>
-                    <tr>
-                        <th>Suburb</th>
-                        <th>Median Price</th>
-                    </tr>
-                    {% for suburb in hot_suburbs %}
-                        <tr>
-                            <td>{{ suburb["Suburb"] }}</td>
-                            <td>${{ "{:,.0f}".format(suburb["Price"]) }}</td>
-                        </tr>
-                    {% endfor %}
-                </table>
-            {% endif %}
             {% if region_median_chart_path %}
                 <div class="chart">
                     <img src="{{ url_for('static', filename=region_median_chart_path.split('/')[-1]) }}" alt="Median Price by Region">
@@ -176,7 +154,7 @@
                     {% endfor %}
                 </table>
             {% else %}
-                <p>Select a region, postcode, suburb, or click 'HOT SUBURBS' to view properties.</p>
+                <p>Select a region, postcode, or suburb to view properties.</p>
             {% endif %}
         </div>
     </div>
