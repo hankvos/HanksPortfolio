@@ -8,6 +8,7 @@ from collections import Counter
 from functools import lru_cache
 import sys
 import time
+import threading
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -70,18 +71,21 @@ SUBURB_COORDS = {
 }
 
 df = None
+initial_load_complete = False
 
 def load_property_data():
-    global df
-    if df is not None:
+    global df, initial_load_complete
+    if initial_load_complete:
         return df
     
     start_time = time.time()
-    logging.info("Loading property data...")
+    logging.info("Loading property data at startup...")
     zip_files = [f for f in os.listdir() if f.endswith('.zip')]
     if not zip_files:
         logging.error("No ZIP files found in the directory.")
-        return pd.DataFrame()
+        df = pd.DataFrame()
+        initial_load_complete = True
+        return df
 
     result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"])
     raw_property_types = Counter()
@@ -164,6 +168,7 @@ def load_property_data():
         logging.info(f"Loaded {len(result_df)} records into DataFrame in {time.time() - start_time:.2f} seconds")
 
     df = result_df
+    initial_load_complete = True
     return df
 
 def generate_region_median_chart():
@@ -269,28 +274,24 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
     
     center_lat, center_lon = REGION_CENTERS.get(region, [None, None]) if region else [-32.0, 152.0]
     if postcode and not suburb:
-        # Center on postcode if no suburb selected
         center = POSTCODE_COORDS.get(postcode, [-32.0, 152.0])
         center_lat, center_lon = center[0], center[1]
     m = folium.Map(location=[center_lat or -32.0, center_lon or 152.0], zoom_start=11 if postcode else 9 if region else 7, tiles="CartoDB positron")
     
     if not filtered_df.empty:
         if postcode and not suburb and postcode in SUBURB_COORDS:
-            # Suburb-level heatmap for the postcode
             heatmap_data = filtered_df[filtered_df["Suburb"].isin(SUBURB_COORDS[postcode].keys())].groupby("Suburb").agg({"Price": "median"}).reset_index()
             heat_data = [
                 [SUBURB_COORDS[postcode][row["Suburb"]][0], SUBURB_COORDS[postcode][row["Suburb"]][1], row["Price"] / 1e6]
                 for _, row in heatmap_data.iterrows() if row["Suburb"] in SUBURB_COORDS[postcode]
             ]
         elif suburb:
-            # Single suburb heatmap
             heatmap_data = filtered_df.groupby("Suburb").agg({"Price": "median"}).reset_index()
             heat_data = [
                 [SUBURB_COORDS[postcode][row["Suburb"]][0], SUBURB_COORDS[postcode][row["Suburb"]][1], row["Price"] / 1e6]
                 for _, row in heatmap_data.iterrows() if row["Suburb"] == suburb and postcode in SUBURB_COORDS
             ]
         else:
-            # Region or postcode-level heatmap
             heatmap_data = filtered_df[filtered_df["Postcode"].isin(POSTCODE_COORDS.keys())].groupby("Postcode").agg({"Price": "median"}).reset_index()
             heat_data = [
                 [POSTCODE_COORDS[row["Postcode"]][0], POSTCODE_COORDS[row["Postcode"]][1], row["Price"] / 1e6]
@@ -551,15 +552,33 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
     
     return median_chart_path, price_hist_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path
 
+def pre_generate_charts():
+    logging.info("Starting pre-generation of default charts...")
+    generate_region_median_chart()
+    for region in REGION_POSTCODE_LIST.keys():
+        generate_postcode_median_chart(region=region)
+    logging.info("Pre-generation of default charts completed.")
+
 @app.route('/health')
 def health_check():
     return jsonify({"status": "ok"}), 200
 
 @app.route('/', methods=["GET", "POST"])
 def index():
+    global initial_load_complete
     start_time = time.time()
     logging.info("Starting index route")
     
+    if not initial_load_complete:
+        logging.info("Data not yet loaded, returning loading message")
+        return render_template("index.html", 
+                               regions=REGION_POSTCODE_LIST.keys(), 
+                               postcodes=[], 
+                               suburbs=[], 
+                               property_types=["ALL", "HOUSE", "UNIT", "COMMERCIAL", "FARM", "VACANT LAND"], 
+                               data_source="NSW Valuer General Data", 
+                               error="Data is still loading, please try again in a moment.")
+
     df = load_property_data()
     selected_region = request.form.get("region", None) if request.method == "POST" else None
     selected_postcode = request.form.get("postcode", None) if request.method == "POST" else None
@@ -682,6 +701,12 @@ def get_suburbs():
 @app.route('/static/<path:filename>')
 def static_files(filename):
     return send_from_directory(app.static_folder, filename)
+
+# Preload data at module level (before app.run)
+logging.info("Initializing application...")
+load_property_data()  # Load data once at startup
+threading.Thread(target=pre_generate_charts, daemon=True).start()
+logging.info("Data preload and chart pre-generation initiated.")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
