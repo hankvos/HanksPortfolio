@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Loading...</title>
+    <title>Loading - NSW Property Sales</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -16,14 +16,63 @@
         }
         .loading {
             text-align: center;
+            color: #333;
+        }
+        h1 {
+            color: #333;
+        }
+        .loading-notice {
+            color: #555;
+            font-style: italic;
+            margin: 10px 0;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+            margin: 10px 0;
+            display: none;
         }
     </style>
-    <meta http-equiv="refresh" content="5">
+    <script>
+        let timeoutId;
+
+        // Poll the server every 5 seconds to check if data is loaded
+        function checkDataStatus() {
+            fetch('/health')
+                .then(response => {
+                    if (response.ok) {
+                        // If health check passes, redirect to main page
+                        window.location.href = '/';
+                    } else {
+                        throw new Error('Health check failed');
+                    }
+                })
+                .catch(error => {
+                    console.log('Data not yet loaded, retrying...', error);
+                    setTimeout(checkDataStatus, 5000); // Retry after 5 seconds
+                });
+        }
+
+        // Set a timeout to show an error message after 60 seconds
+        function startTimeout() {
+            timeoutId = setTimeout(() => {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+            }, 60000); // 60 seconds
+        }
+
+        // Start polling and timeout when the page loads
+        window.onload = function() {
+            checkDataStatus();
+            startTimeout();
+        };
+    </script>
 </head>
 <body>
     <div class="loading">
         <h1>Loading Property Data...</h1>
-        <p>Please wait, this may take a moment.</p>
+        <p id="loading" class="loading-notice">Please wait, this may take a moment.</p>
+        <p id="error" class="error">Taking longer than expected. Please try refreshing the page or contact support if this persists.</p>
     </div>
 </body>
 </html>
