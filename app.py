@@ -8,7 +8,6 @@ from collections import Counter
 from functools import lru_cache
 import sys
 import time
-import threading
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -77,7 +76,7 @@ def load_property_data():
         return df
     
     start_time = time.time()
-    logging.info("Loading property data in background...")
+    logging.info("Loading property data...")
     zip_files = [f for f in os.listdir() if f.endswith('.zip')]
     if not zip_files:
         logging.error("No ZIP files found in the directory.")
@@ -429,20 +428,9 @@ def health_check():
 
 @app.route('/', methods=["GET", "POST"])
 def index():
-    global initial_load_complete
     start_time = time.time()
     logging.info("Starting index route")
     
-    if not initial_load_complete:
-        logging.info("Data not yet loaded, returning loading message")
-        return render_template("index.html", 
-                               regions=REGION_POSTCODE_LIST.keys(), 
-                               postcodes=[], 
-                               suburbs=[], 
-                               property_types=["ALL", "HOUSE", "UNIT", "COMMERCIAL", "FARM", "VACANT LAND"], 
-                               data_source="NSW Valuer General Data", 
-                               error="Data is still loading, please try again in a moment.")
-
     df = load_property_data()
     selected_region = request.form.get("region", None) if request.method == "POST" else None
     selected_postcode = request.form.get("postcode", None) if request.method == "POST" else None
@@ -564,28 +552,14 @@ def get_suburbs():
 
 @app.route('/hot_suburbs', methods=["GET", "POST"])
 def hot_suburbs():
-    global initial_load_complete
-    if not initial_load_complete:
-        return render_template("index.html", 
-                               regions=REGION_POSTCODE_LIST.keys(), 
-                               postcodes=[], 
-                               suburbs=[], 
-                               property_types=["ALL", "HOUSE", "UNIT", "COMMERCIAL", "FARM", "VACANT LAND"], 
-                               data_source="NSW Valuer General Data", 
-                               error="Data is still loading, please try again in a moment.")
-
     if request.method == "POST":
-        # Redirect POST requests to the main index route for filtering
-        return redirect(url_for('index'), code=307)  # 307 preserves the POST data
+        return redirect(url_for('index'), code=307)  # Preserve POST data
 
     df = load_property_data()
-    # Group by suburb and calculate median price, then sort by price
     suburb_medians = df.groupby("Suburb")["Price"].median().reset_index()
-    # Filter suburbs with median price < $900,000 and sort by price
     hot_suburbs_df = suburb_medians[suburb_medians["Price"] < 900000].sort_values(by="Price")
     hot_suburbs_list = hot_suburbs_df.to_dict(orient="records")
     
-    # Pass the hot suburbs data to the template
     return render_template("index.html",
                            regions=REGION_POSTCODE_LIST.keys(),
                            postcodes=[],
@@ -604,10 +578,10 @@ def hot_suburbs():
 def static_files(filename):
     return send_from_directory(app.static_folder, filename)
 
-# Start data loading in a background thread
+# Load data and pre-generate charts at startup
 logging.info("Initializing application...")
-threading.Thread(target=load_property_data, daemon=True).start()
-threading.Thread(target=pre_generate_charts, daemon=True).start()
+load_property_data()
+pre_generate_charts()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))  # Default to 10000 for Render
