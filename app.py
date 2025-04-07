@@ -39,7 +39,7 @@ ALLOWED_POSTCODES = {pc for region in REGION_POSTCODE_LIST.values() for pc in re
 
 POSTCODE_COORDS = {
     "2250": [-33.28, 151.41], "2251": [-33.31, 151.42], "2256": [-33.47, 151.32], "2257": [-33.49, 151.35],
-    "2258": [-33.41, 151.37], "2259": [-33.22, 151.42], "2260": [-33.27, 151.46], "2261": [-33.33, 151.47],
+    "2258": [-33.41, 151.37], "2259": [-33.22, 151.42], "2260": [-33.27, "2261": [-33.33, 151.47],
     "2262": [-33.36, 151.43], "2263": [-33.39, 151.45], "2450": [-30.30, 153.12], "2452": [-30.36, 153.09],
     "2454": [-30.63, 152.97], "2455": [-30.71, 152.93], "2456": [-30.65, 152.91], "2320": [-32.73, 151.55],
     "2321": [-32.75, 151.61], "2325": [-32.58, 151.33], "2326": [-32.77, 151.48], "2327": [-32.79, 151.50],
@@ -301,7 +301,7 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
         if heat_data:
             HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
-    # Add markers with simpler popups
+    # Add markers with IFrame popups
     for i, (region_name, postcodes) in enumerate(REGION_POSTCODE_LIST.items()):
         center = REGION_CENTERS.get(region_name)
         if center:
@@ -313,10 +313,11 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
                 <a href="#" onclick="parent.handleRegionClick('{region_name}'); return false;">{region_name}</a>
             </div>
             """
+            iframe = folium.IFrame(html=popup_html, width=200, height=50)
             folium.Marker(
                 [lat, lon],
                 tooltip=region_name,
-                popup=folium.Popup(popup_html, parse_html=True, max_width=300),
+                popup=folium.Popup(iframe, max_width=200),
                 icon=folium.Icon(color="blue", icon="info-sign")
             ).add_to(m)
     
@@ -562,6 +563,40 @@ def get_suburbs():
         filtered_df = filtered_df[filtered_df["Postcode"] == postcode]
     suburbs = sorted(filtered_df["Suburb"].unique().tolist())
     return jsonify(suburbs)
+
+@app.route('/hot_suburbs', methods=["GET"])
+def hot_suburbs():
+    global initial_load_complete
+    if not initial_load_complete:
+        return render_template("index.html", 
+                               regions=REGION_POSTCODE_LIST.keys(), 
+                               postcodes=[], 
+                               suburbs=[], 
+                               property_types=["ALL", "HOUSE", "UNIT", "COMMERCIAL", "FARM", "VACANT LAND"], 
+                               data_source="NSW Valuer General Data", 
+                               error="Data is still loading, please try again in a moment.")
+
+    df = load_property_data()
+    # Group by suburb and calculate median price
+    suburb_medians = df.groupby("Suburb")["Price"].median().reset_index()
+    # Filter suburbs with median price < $1,000,000
+    hot_suburbs_df = suburb_medians[suburb_medians["Price"] < 1000000]
+    hot_suburbs_list = hot_suburbs_df.to_dict(orient="records")
+    
+    # Pass the hot suburbs data to the template
+    return render_template("index.html",
+                           regions=REGION_POSTCODE_LIST.keys(),
+                           postcodes=[],
+                           suburbs=[],
+                           property_types=["ALL", "HOUSE", "UNIT", "COMMERCIAL", "FARM", "VACANT LAND"],
+                           hot_suburbs=hot_suburbs_list,
+                           data_source="NSW Valuer General Data",
+                           heatmap_path=generate_heatmap_cached(),
+                           selected_region="",
+                           selected_postcode="",
+                           selected_suburb="",
+                           selected_property_type="HOUSE",
+                           sort_by="Settlement Date")
 
 @app.route('/static/<path:filename>')
 def static_files(filename):

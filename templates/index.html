@@ -17,6 +17,11 @@
             border-radius: 5px;
             z-index: 1000; /* Ensures it appears above other content */
         }
+        iframe {
+            width: 100%;
+            height: 500px;
+            border: none;
+        }
     </style>
     <script>
         function updatePostcodes() {
@@ -117,12 +122,28 @@
                 </select>
 
                 <button type="submit">Filter</button>
+                <button type="button" onclick="window.location.href='/hot_suburbs'; document.getElementById('loading').style.display = 'block';">HOT SUBURBS</button>
             </form>
             {% if error %}
                 <p class="error">Error: {{ error }}</p>
             {% endif %}
         </div>
         <div class="right-column">
+            {% if hot_suburbs %}
+                <h2>Hot Suburbs (Median Price < $1,000,000)</h2>
+                <table>
+                    <tr>
+                        <th>Suburb</th>
+                        <th>Median Price</th>
+                    </tr>
+                    {% for suburb in hot_suburbs %}
+                        <tr>
+                            <td>{{ suburb["Suburb"] }}</td>
+                            <td>${{ "{:,.0f}".format(suburb["Price"]) }}</td>
+                        </tr>
+                    {% endfor %}
+                </table>
+            {% endif %}
             {% if region_median_chart_path %}
                 <div class="chart">
                     <img src="{{ url_for('static', filename=region_median_chart_path.split('/')[-1]) }}" alt="Median Price by Region">
@@ -189,7 +210,9 @@
                     {% endfor %}
                 </table>
             {% else %}
-                <p>Select a region, postcode, or suburb to view properties.</p>
+                {% if not hot_suburbs %}
+                    <p>Select a region, postcode, or suburb to view properties.</p>
+                {% endif %}
             {% endif %}
         </div>
     </div>
