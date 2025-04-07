@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
 from flask import Flask, render_template, request, jsonify, send_from_directory, redirect, url_for
+import folium  # Added missing import
 
 app = Flask(__name__)
 
@@ -296,7 +297,7 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
             ]
         
         if heat_data:
-            HeatMap(heat_data, radius=15, blur=20).add_to(m)
+            folium.plugins.HeatMap(heat_data, radius=15, blur=20).add_to(m)
     
     # Add markers with IFrame popups
     for i, (region_name, postcodes) in enumerate(REGION_POSTCODE_LIST.items()):
