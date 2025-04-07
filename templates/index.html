@@ -82,7 +82,7 @@
             {% if heatmap_path %}
                 <iframe src="{{ url_for('static', filename=heatmap_path.split('/')[-1]) }}" frameborder="0"></iframe>
             {% endif %}
-            <form method="POST" onsubmit="document.getElementById('loading').style.display = 'block';">
+            <form method="POST" action="/" onsubmit="document.getElementById('loading').style.display = 'block';">
                 <label for="region">Region:</label>
                 <select id="region" name="region" onchange="updatePostcodes()">
                     <option value="">Select Region</option>
@@ -130,7 +130,7 @@
         </div>
         <div class="right-column">
             {% if hot_suburbs %}
-                <h2>Hot Suburbs (Median Price < $1,000,000)</h2>
+                <h2>Hot Suburbs (Median Price < $900,000)</h2>
                 <table>
                     <tr>
                         <th>Suburb</th>

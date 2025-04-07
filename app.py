@@ -14,9 +14,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
-from flask import Flask, render_template, request, jsonify, send_from_directory
-import folium
-from folium.plugins import HeatMap
+from flask import Flask, render_template, request, jsonify, send_from_directory, redirect, url_for
 
 app = Flask(__name__)
 
@@ -310,7 +308,7 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
                 lon -= 0.5
             popup_html = f"""
             <div>
-                <a href="#" onclick="parent.handleRegionClick('{region_name}'); return false;">{region_name}</a>
+                <a href="#" onclick="parent.handleRegionClick('{region_name}'); console.log('Clicked {region_name}'); return false;">{region_name}</a>
             </div>
             """
             iframe = folium.IFrame(html=popup_html, width=200, height=50)
@@ -564,7 +562,7 @@ def get_suburbs():
     suburbs = sorted(filtered_df["Suburb"].unique().tolist())
     return jsonify(suburbs)
 
-@app.route('/hot_suburbs', methods=["GET"])
+@app.route('/hot_suburbs', methods=["GET", "POST"])
 def hot_suburbs():
     global initial_load_complete
     if not initial_load_complete:
@@ -576,11 +574,15 @@ def hot_suburbs():
                                data_source="NSW Valuer General Data", 
                                error="Data is still loading, please try again in a moment.")
 
+    if request.method == "POST":
+        # Redirect POST requests to the main index route for filtering
+        return redirect(url_for('index'), code=307)  # 307 preserves the POST data
+
     df = load_property_data()
-    # Group by suburb and calculate median price
+    # Group by suburb and calculate median price, then sort by price
     suburb_medians = df.groupby("Suburb")["Price"].median().reset_index()
-    # Filter suburbs with median price < $1,000,000
-    hot_suburbs_df = suburb_medians[suburb_medians["Price"] < 1000000]
+    # Filter suburbs with median price < $900,000 and sort by price
+    hot_suburbs_df = suburb_medians[suburb_medians["Price"] < 900000].sort_values(by="Price")
     hot_suburbs_list = hot_suburbs_df.to_dict(orient="records")
     
     # Pass the hot suburbs data to the template
