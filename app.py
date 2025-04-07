@@ -164,7 +164,8 @@ def load_property_data():
                                                     temp_df = temp_df[temp_df["Settlement Date"].dt.year >= 2024]
                                                     temp_df["Settlement Date"] = temp_df["Settlement Date"].dt.strftime('%d/%m/%Y')
                                                     temp_df = temp_df[temp_df["Postcode"].isin(ALLOWED_POSTCODES)]
-                                                    if not temp_df.empty:
+                                                    # Filter out empty or all-NA DataFrames before concat (fixes pandas FutureWarning)
+                                                    if not temp_df.empty and not temp_df.isna().all().all():
                                                         result_df = pd.concat([result_df, temp_df], ignore_index=True)
                                         except Exception as e:
                                             logger.error(f"Error reading {dat_file} in {nested_zip_name}: {e}", exc_info=True)
@@ -200,6 +201,8 @@ def generate_region_median_chart():
             return None
         regions, prices = zip(*sorted(median_prices.items(), key=lambda x: x[1]))
         plt.figure(figsize=(10, 6))
+        # Convert prices to numeric explicitly (fixes matplotlib warning)
+        prices = pd.to_numeric(prices, errors='coerce')
         plt.bar(regions, prices)
         plt.title("Median Price by Region")
         plt.xlabel("Region")
@@ -241,6 +244,7 @@ def generate_postcode_median_chart(region=None, postcode=None):
         
         pcs, prices = zip(*sorted(median_prices.items(), key=lambda x: x[1]))
         plt.figure(figsize=(10, 6))
+        prices = pd.to_numeric(prices, errors='coerce')  # Ensure numeric for plotting
         plt.bar(pcs, prices)
         plt.title(f"Median Price by Postcode ({region or postcode})")
         plt.xlabel("Postcode")
@@ -271,6 +275,7 @@ def generate_suburb_median_chart(postcode):
         
         suburbs, prices = zip(*sorted(median_prices.items(), key=lambda x: x[1]))
         plt.figure(figsize=(10, 6))
+        prices = pd.to_numeric(prices, errors='coerce')  # Ensure numeric for plotting
         plt.bar(suburbs, prices)
         plt.title(f"Median Price by Suburb (Postcode {postcode})")
         plt.xlabel("Suburb")
@@ -401,6 +406,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
         house_df["Settlement Date"] = pd.to_datetime(house_df["Settlement Date"], format='%d/%m/%Y')
         monthly_medians = house_df.groupby(house_df["Settlement Date"].dt.to_period("M"))["Price"].median()
         monthly_medians.index = monthly_medians.index.to_timestamp()
+        monthly_medians = pd.to_numeric(monthly_medians, errors='coerce')  # Ensure numeric for plotting
         monthly_medians.plot()
         plt.title(title)
         plt.xlabel("Settlement Date")
@@ -410,6 +416,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
         plt.close()
         
         plt.figure(figsize=(10, 6))
+        filtered_df["Price"] = pd.to_numeric(filtered_df["Price"], errors='coerce')  # Ensure numeric for histogram
         filtered_df["Price"].hist(bins=30)
         plt.title("Price Histogram")
         plt.xlabel("Price ($)")
@@ -425,6 +432,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
             region_df["Settlement Date"] = pd.to_datetime(region_df["Settlement Date"], format='%d/%m/%Y')
             monthly_medians = region_df.groupby(region_df["Settlement Date"].dt.to_period("M"))["Price"].median()
             monthly_medians.index = monthly_medians.index.to_timestamp()
+            monthly_medians = pd.to_numeric(monthly_medians, errors='coerce')
             monthly_medians.plot()
             plt.title(f"Region Price Timeline: {region}")
             plt.xlabel("Settlement Date")
@@ -440,6 +448,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
             postcode_df["Settlement Date"] = pd.to_datetime(postcode_df["Settlement Date"], format='%d/%m/%Y')
             monthly_medians = postcode_df.groupby(postcode_df["Settlement Date"].dt.to_period("M"))["Price"].median()
             monthly_medians.index = monthly_medians.index.to_timestamp()
+            monthly_medians = pd.to_numeric(monthly_medians, errors='coerce')
             monthly_medians.plot()
             plt.title(f"Postcode Price Timeline: {postcode}")
             plt.xlabel("Settlement Date")
@@ -455,6 +464,7 @@ def generate_charts_cached(region=None, postcode=None, suburb=None):
             suburb_df["Settlement Date"] = pd.to_datetime(suburb_df["Settlement Date"], format='%d/%m/%Y')
             monthly_medians = suburb_df.groupby(suburb_df["Settlement Date"].dt.to_period("M"))["Price"].median()
             monthly_medians.index = monthly_medians.index.to_timestamp()
+            monthly_medians = pd.to_numeric(monthly_medians, errors='coerce')
             monthly_medians.plot()
             plt.title(f"Suburb Price Timeline: {suburb}")
             plt.xlabel("Settlement Date")

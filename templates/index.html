@@ -46,13 +46,22 @@
         .error {
             color: red;
             font-weight: bold;
+            margin: 10px 0;
+        }
+        .loading-notice {
+            color: #555;
+            font-style: italic;
+            margin: 10px 0;
         }
     </style>
     <script>
         function updatePostcodes() {
             const region = document.getElementById('region').value;
             fetch(`/get_postcodes?region=${region}`)
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) throw new Error('Data not loaded yet');
+                    return response.json();
+                })
                 .then(data => {
                     const postcodeSelect = document.getElementById('postcode');
                     postcodeSelect.innerHTML = '<option value="">Select Postcode</option>';
@@ -65,6 +74,10 @@
                         });
                     }
                     updateSuburbs();
+                })
+                .catch(error => {
+                    console.error('Error fetching postcodes:', error);
+                    alert('Data is still loading, please wait a moment.');
                 });
         }
 
@@ -72,7 +85,10 @@
             const region = document.getElementById('region').value;
             const postcode = document.getElementById('postcode').value;
             fetch(`/get_suburbs?region=${region}&postcode=${postcode}`)
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) throw new Error('Data not loaded yet');
+                    return response.json();
+                })
                 .then(data => {
                     const suburbSelect = document.getElementById('suburb');
                     suburbSelect.innerHTML = '<option value="">Select Suburb</option>';
@@ -84,6 +100,10 @@
                             suburbSelect.appendChild(option);
                         });
                     }
+                })
+                .catch(error => {
+                    console.error('Error fetching suburbs:', error);
+                    alert('Data is still loading, please wait a moment.');
                 });
         }
     </script>
@@ -136,6 +156,10 @@
 
     {% if error %}
     <p class="error">{{ error }}</p>
+    {% endif %}
+
+    {% if not properties and not hot_suburbs and not heatmap_path and not region_median_chart_path %}
+    <p class="loading-notice">Data is loading or no filters applied yet. Please wait or select a filter.</p>
     {% endif %}
 
     {% if properties %}
