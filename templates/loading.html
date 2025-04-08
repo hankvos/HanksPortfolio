@@ -41,15 +41,20 @@
             fetch('/health')
                 .then(response => {
                     console.log("Health response status:", response.status);
+                    if (!response.ok) {
+                        throw new Error('Health check failed with status ' + response.status);
+                    }
                     return response.text();
                 })
                 .then(data => {
-                    console.log("Health response body:", data);
-                    if (data === "OK") {
+                    const trimmedData = data.trim();
+                    console.log("Health response body (raw):", data);
+                    console.log("Health response body (trimmed):", trimmedData);
+                    if (trimmedData === "OK") {
                         console.log("Data loaded, redirecting to /");
                         window.location.href = '/';
                     } else {
-                        console.log("Data not yet loaded, retrying in 5s");
+                        console.log("Data not yet loaded, retrying in 5s:", trimmedData);
                         setTimeout(checkDataStatus, 5000);
                     }
                 })

@@ -523,6 +523,7 @@ def load_data_async():
 def health_check():
     logger.debug("Health check endpoint called")
     status = "OK" if initial_load_complete else "LOADING"
+    logger.info(f"Returning health status: '{status}'")  # Log the exact response
     return status, 200
 
 @app.route('/', methods=["GET", "POST"])
