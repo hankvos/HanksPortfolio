@@ -115,18 +115,18 @@ th {
 
 th:last-child, td:last-child {
     text-align: center;
-    width: 100px; /* Increased from 60px for readability */
+    width: 100px;
 }
 
 .hot-suburbs-table {
     width: 100%;
-    max-width: 1000px; /* Wider table for hot suburbs */
+    max-width: 1000px;
     margin: 20px auto;
 }
 
 .hot-suburbs-table th, .hot-suburbs-table td {
-    padding: 12px; /* More padding for readability */
-    min-width: 100px; /* Minimum width for each column */
+    padding: 12px;
+    min-width: 100px;
 }
 
 iframe {

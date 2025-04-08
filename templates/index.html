@@ -43,6 +43,7 @@
                 </select>
                 <label for="sort_by">Sort By:</label>
                 <select name="sort_by" id="sort_by" onchange="this.form.submit()">
+                    <option value="Street" {% if sort_by == "Street" %}selected{% endif %}>Street</option>
                     <option value="Settlement Date" {% if sort_by == "Settlement Date" %}selected{% endif %}>Settlement Date</option>
                     <option value="Price" {% if sort_by == "Price" %}selected{% endif %}>Price</option>
                 </select>

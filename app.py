@@ -96,28 +96,28 @@ def log_memory_usage():
 def load_property_data():
     global df, data_loaded, NATIONAL_MEDIAN
     if data_loaded:
-        logger.debug("Data already loaded, returning cached DataFrame")
+        logger.debug("Data Loaded, returning cached DataFrame")
         return df
     
     start_time = time.time()
     logger.info("Loading property data...")
     log_memory_usage()
-    zip_file = "2025.zip"
-    if not os.path.exists(zip_file):
-        logger.error(f"ZIP file {zip_file} not found in the directory.")
-        df = pd.DataFrame()
-        data_loaded = True
-        logger.info("Set data_loaded (no data)")
-        return df
-
+    zip_files = ["2024.zip", "2025.zip"]
     result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"])
     raw_property_types = Counter()
     allowed_types = {"RESIDENCE", "COMMERCIAL", "FARM", "VACANT LAND"}
 
-    try:
+    for zip_file in zip_files:
+        if not os.path.exists(zip_file):
+            logger.error(f"ZIP file {zip_file} not found in the directory.")
+            continue
+
         with zipfile.ZipFile(zip_file, 'r') as outer_zip:
             nested_zips = [f for f in outer_zip.namelist() if f.endswith('.zip')]
             for nested_zip_name in sorted(nested_zips, reverse=True):
+                # For 2024.zip, only process December 2024 inner zips
+                if zip_file == "2024.zip" and not nested_zip_name.startswith("202412"):
+                    continue
                 try:
                     with outer_zip.open(nested_zip_name) as nested_zip_file:
                         with zipfile.ZipFile(io.BytesIO(nested_zip_file.read())) as nested_zip:
@@ -163,7 +163,7 @@ def load_property_data():
                                             temp_df = temp_df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"]]
                                             temp_df["Postcode"] = temp_df["Postcode"].astype(str)
                                             temp_df["Price"] = pd.to_numeric(temp_df["Price"], errors='coerce', downcast='float')
-                                            temp_df["Block Size"] = pd.to_numeric(temp_df["Block Size"], errors='coerce', downcast='float').round(0)  # Round to 0 decimal places
+                                            temp_df["Block Size"] = pd.to_numeric(temp_df["Block Size"], errors='coerce', downcast='float').round(0)
                                             temp_df["Settlement Date"] = pd.to_datetime(temp_df["Settlement Date"], format='%Y%m%d', errors='coerce')
                                             temp_df = temp_df[temp_df["Settlement Date"].dt.year >= 2024]
                                             temp_df["Settlement Date"] = temp_df["Settlement Date"].dt.strftime('%d/%m/%Y')
@@ -175,15 +175,13 @@ def load_property_data():
                                     logger.error(f"Error reading {dat_file} in {nested_zip_name}: {e}", exc_info=True)
                 except Exception as e:
                     logger.error(f"Error processing nested ZIP {nested_zip_name} in {zip_file}: {e}", exc_info=True)
-    except Exception as e:
-        logger.error(f"Error opening {zip_file}: {e}", exc_info=True)
 
     if result_df.empty:
         logger.error("No valid DAT files processed or no data matches filters.")
     else:
         NATIONAL_MEDIAN = result_df["Price"].median()
         logger.info(f"National median price calculated: ${NATIONAL_MEDIAN:,.0f}")
-        logger.info(f"Processed {len(result_df)} records from 2025.zip")
+        logger.info(f"Processed {len(result_df)} records from {zip_files}")
         logger.info(f"Raw Property Type counts (field 18): {dict(raw_property_types)}")
         logger.info(f"Processed Property Type counts: {result_df['Property Type'].value_counts().to_dict()}")
         logger.info(f"Loaded {len(result_df)} records into DataFrame in {time.time() - start_time:.2f} seconds")
@@ -282,7 +280,7 @@ def index():
         selected_postcode = request.form.get("postcode", "")
         selected_suburb = request.form.get("suburb", "")
         selected_property_type = request.form.get("property_type", "HOUSE")
-        sort_by = request.form.get("sort_by", "Settlement Date")
+        sort_by = request.form.get("sort_by", "Street")  # Default to Street
         filtered_df = df.copy()
         
         chart_path = generate_region_median_chart(selected_region, selected_postcode)
@@ -349,7 +347,7 @@ def hot_suburbs():
         suburb_medians = df.groupby(['Suburb', 'Postcode'])['Price'].median().reset_index()
         postcode_to_region = {pc: region for region, postcodes in REGION_POSTCODE_LIST.items() for pc in postcodes}
         suburb_medians['Region'] = suburb_medians['Postcode'].map(postcode_to_region)
-        hot_suburbs_df = suburb_medians[suburb_medians['Price'] < NATIONAL_MEDIAN].sort_values(by='Price')  # Sort by median price
+        hot_suburbs_df = suburb_medians[suburb_medians['Price'] < NATIONAL_MEDIAN].sort_values(by='Price')
         hot_suburbs = [
             {
                 'suburb': row['Suburb'],
