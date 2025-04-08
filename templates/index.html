@@ -4,6 +4,17 @@
     <meta charset="UTF-8">
     <title>Property Sales Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script>
+        function resetFilters(selectElement) {
+            if (selectElement.name === "region" && selectElement.value === "") {
+                document.getElementById("postcode").selectedIndex = 0;
+                document.getElementById("suburb").selectedIndex = 0;
+            } else if (selectElement.name === "postcode" && selectElement.value === "") {
+                document.getElementById("suburb").selectedIndex = 0;
+            }
+            selectElement.form.submit();
+        }
+    </script>
 </head>
 <body>
     <div class="data-source">{{ data_source }}</div>
@@ -15,14 +26,14 @@
             {% endif %}
             <form method="POST" action="/">
                 <label for="region">Region:</label>
-                <select name="region" id="region" onchange="this.form.submit()">
+                <select name="region" id="region" onchange="resetFilters(this)">
                     <option value="">All Regions</option>
                     {% for region in regions %}
                     <option value="{{ region }}" {% if region == selected_region %}selected{% endif %}>{{ region }}</option>
                     {% endfor %}
                 </select>
                 <label for="postcode">Postcode:</label>
-                <select name="postcode" id="postcode" onchange="this.form.submit()">
+                <select name="postcode" id="postcode" onchange="resetFilters(this)">
                     <option value="">All Postcodes</option>
                     {% for postcode in postcodes %}
                     <option value="{{ postcode }}" {% if postcode == selected_postcode %}selected{% endif %}>{{ postcode }}</option>
@@ -59,12 +70,10 @@
             <p>National Median Price: ${{ "{:,.0f}".format(national_median) }}</p>
             <div class="properties-container">
                 {% if properties %}
-                <h2>Properties (Average Price: {{ avg_price | currency }})</h2>
+                <h2>Properties (Average Price: {{ avg_price | currency }}, Median Price: {{ median_price | currency }}) {% if display_suburb %} - {{ display_suburb }}{% endif %}</h2>
                 <table>
                     <tr>
                         <th>Street</th>
-                        <th>Suburb</th>
-                        <th>Postcode</th>
                         <th>Block Size (sqm)</th>
                         <th>Property Type</th>
                         <th>Settlement Date</th>
@@ -73,8 +82,6 @@
                     {% for property in properties %}
                     <tr>
                         <td>{{ property.Street }}</td>
-                        <td>{{ property.Suburb }}</td>
-                        <td>{{ property.Postcode }}</td>
                         <td>{{ property["Block Size"] }}</td>
                         <td>{{ property["Property Type"] }}</td>
                         <td>{{ property["Settlement Date"] }}</td>

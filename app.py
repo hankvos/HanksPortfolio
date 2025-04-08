@@ -298,6 +298,10 @@ def index():
         # Log form data for debugging
         logger.info(f"Form data: region={selected_region}, postcode={selected_postcode}, suburb={selected_suburb}, property_type={selected_property_type}, sort_by={sort_by}")
         
+        # Reset postcode and suburb for display if region is "All Regions"
+        display_postcode = selected_postcode if selected_region else ""
+        display_suburb = selected_suburb if selected_region and selected_postcode else ""
+        
         chart_path = generate_region_median_chart(selected_region, selected_postcode)
         
         # Filter properties based on selections
@@ -318,10 +322,12 @@ def index():
             else:
                 properties = filtered_df.sort_values(by=sort_by).to_dict('records')
             avg_price = filtered_df["Price"].mean()
-            stats = {"mean": filtered_df["Price"].mean(), "median": filtered_df["Price"].median(), "std": filtered_df["Price"].std()}
+            median_price = filtered_df["Price"].median()
+            stats = {"mean": avg_price, "median": median_price, "std": filtered_df["Price"].std()}
         else:
             properties = []
             avg_price = 0
+            median_price = 0
             stats = {"mean": 0, "median": 0, "std": 0}
         
         logger.info(f"Filtered properties: {len(properties)} records")
@@ -337,16 +343,18 @@ def index():
                                   suburbs=unique_suburbs,
                                   property_types=["ALL", "HOUSE", "UNIT", "COMMERCIAL", "FARM", "VACANT LAND"],
                                   selected_region=selected_region,
-                                  selected_postcode=selected_postcode,
-                                  selected_suburb=selected_suburb,
+                                  selected_postcode=display_postcode,
+                                  selected_suburb=display_suburb,
                                   selected_property_type=selected_property_type,
                                   sort_by=sort_by,
                                   heatmap_path=heatmap_path,
                                   region_median_chart_path=region_median_chart_path,
                                   properties=properties,
                                   avg_price=avg_price,
+                                  median_price=median_price,
                                   stats=stats,
-                                  national_median=NATIONAL_MEDIAN)
+                                  national_median=NATIONAL_MEDIAN,
+                                  display_suburb=selected_suburb if selected_suburb else None)
         elapsed_time = time.time() - start_time
         logger.info(f"Index route completed in {elapsed_time:.2f} seconds")
         log_memory_usage()
