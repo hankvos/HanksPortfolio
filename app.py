@@ -220,12 +220,13 @@ def generate_region_median_chart():
     region_medians = region_medians.groupby('Region')['Price'].median().sort_values()
     
     plt.figure(figsize=(10, 6))
-    region_medians.plot(kind='barh', color='skyblue')
+    region_medians.plot(kind='bar', color='skyblue')  # Swapped to vertical bars
     plt.title('Median House Prices by Region')
-    plt.xlabel('Median Price ($)')
-    plt.ylabel('Region')
+    plt.ylabel('Median Price ($)')  # Swapped to y-axis
+    plt.xlabel('Region')  # Swapped to x-axis
     for i, v in enumerate(region_medians):
-        plt.text(v, i, f"${v:,.0f}", va='center')
+        plt.text(i, v, f"${v:,.0f}", ha='center', va='bottom')  # Adjusted for vertical bars
+    plt.xticks(rotation=45, ha='right')  # Rotate labels for readability
     plt.tight_layout()
     chart_path = "static/region_median_chart.png"
     plt.savefig(chart_path)
@@ -269,20 +270,27 @@ def index():
         selected_region = request.form.get("region", "")
         selected_postcode = request.form.get("postcode", "")
         selected_suburb = request.form.get("suburb", "")
-        selected_property_type = request.form.get("property_type", "ALL")
+        selected_property_type = request.form.get("property_type", "HOUSE")  # Default to HOUSE
         sort_by = request.form.get("sort_by", "Settlement Date")
         filtered_df = df.copy()
-        if selected_region:
-            filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
-        if selected_postcode:
-            filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
-        if selected_suburb:
-            filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
-        if selected_property_type != "ALL":
-            filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
-        properties = filtered_df.sort_values(by=sort_by).to_dict('records')
-        avg_price = filtered_df["Price"].mean() if not filtered_df.empty else 0
-        stats = {"mean": filtered_df["Price"].mean(), "median": filtered_df["Price"].median(), "std": filtered_df["Price"].std()} if not filtered_df.empty else {"mean": 0, "median": 0, "std": 0}
+        
+        # Only apply filters and populate properties if a filter is selected
+        properties = []
+        avg_price = 0
+        stats = {"mean": 0, "median": 0, "std": 0}
+        if selected_region or selected_postcode or selected_suburb or selected_property_type != "HOUSE":
+            if selected_region:
+                filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
+            if selected_postcode:
+                filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
+            if selected_suburb:
+                filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
+            if selected_property_type != "ALL":
+                filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
+            properties = filtered_df.sort_values(by=sort_by).to_dict('records')
+            avg_price = filtered_df["Price"].mean() if not filtered_df.empty else 0
+            stats = {"mean": filtered_df["Price"].mean(), "median": filtered_df["Price"].median(), "std": filtered_df["Price"].std()} if not filtered_df.empty else {"mean": 0, "median": 0, "std": 0}
+        
         heatmap_path = "static/heatmap.html" if os.path.exists("static/heatmap.html") else None
         region_median_chart_path = "static/region_median_chart.png" if os.path.exists("static/region_median_chart.png") else None
         

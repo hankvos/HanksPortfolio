@@ -32,13 +32,18 @@ body {
 .right-column {
     flex: 2;
     min-width: 400px;
-    position: relative; /* Added to support absolute positioning of the median price chart */
+    position: relative; /* Retained for potential future use */
 }
 
 h1 {
     color: #333;
     text-align: center;
     margin-bottom: 20px;
+}
+
+h2 {
+    color: #333;
+    margin-bottom: 10px;
 }
 
 label {
@@ -59,29 +64,37 @@ button {
 
 .button {
     display: inline-block;
-    padding: 8px 16px; /* Slightly smaller than the submit button for distinction */
-    margin: 10px 0; /* Space above and below */
-    background: #4682B4; /* Matches the submit button */
+    padding: 8px 16px;
+    margin: 10px 0;
+    background: #4682B4;
     color: white;
-    text-decoration: none; /* Removes underline from <a> tag */
-    border-radius: 4px; /* Slight rounding for a polished look */
+    text-decoration: none;
+    border-radius: 4px;
     text-align: center;
-    width: 100%; /* Matches the width of other form elements */
+    width: 100%;
     box-sizing: border-box;
 }
 
 .button:hover {
-    background: #36648B; /* Darker shade on hover for interactivity */
+    background: #36648B;
 }
 
 .error {
     color: red;
 }
 
-.chart img {
-    max-width: 100%;
-    height: auto; /* Ensures responsiveness */
-    margin: 20px 0;
+.chart-container {
+    text-align: right;
+    margin-bottom: 20px; /* Space between chart and properties */
+}
+
+.region-chart {
+    max-width: 400px; /* Adjust size as needed */
+    height: auto;
+}
+
+.properties-container {
+    width: 100%;
 }
 
 table {
