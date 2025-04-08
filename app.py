@@ -115,7 +115,6 @@ def load_property_data():
         with zipfile.ZipFile(zip_file, 'r') as outer_zip:
             nested_zips = [f for f in outer_zip.namelist() if f.endswith('.zip')]
             for nested_zip_name in sorted(nested_zips, reverse=True):
-                # For 2024.zip, only process December 2024 inner zips
                 if zip_file == "2024.zip" and not nested_zip_name.startswith("202412"):
                     continue
                 try:
@@ -280,8 +279,12 @@ def index():
         selected_postcode = request.form.get("postcode", "")
         selected_suburb = request.form.get("suburb", "")
         selected_property_type = request.form.get("property_type", "HOUSE")
-        sort_by = request.form.get("sort_by", "Street")  # Default to Street
-        filtered_df = df.copy()
+        sort_by = request.form.get("sort_by", "Street")
+        
+        # Reset postcode and suburb when "All Regions" is selected
+        if not selected_region:
+            selected_postcode = ""
+            selected_suburb = ""
         
         chart_path = generate_region_median_chart(selected_region, selected_postcode)
         
@@ -289,6 +292,7 @@ def index():
         avg_price = 0
         stats = {"mean": 0, "median": 0, "std": 0}
         if selected_region or selected_postcode or selected_suburb or selected_property_type != "HOUSE":
+            filtered_df = df.copy()
             if selected_region:
                 filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
             if selected_postcode:
@@ -297,7 +301,11 @@ def index():
                 filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
             if selected_property_type != "ALL":
                 filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
-            properties = filtered_df.sort_values(by=sort_by).to_dict('records')
+            # Sort by StreetOnly if sort_by is "Street"
+            if sort_by == "Street":
+                properties = filtered_df.sort_values(by="StreetOnly").to_dict('records')
+            else:
+                properties = filtered_df.sort_values(by=sort_by).to_dict('records')
             avg_price = filtered_df["Price"].mean() if not filtered_df.empty else 0
             stats = {"mean": filtered_df["Price"].mean(), "median": filtered_df["Price"].median(), "std": filtered_df["Price"].std()} if not filtered_df.empty else {"mean": 0, "median": 0, "std": 0}
         
@@ -330,7 +338,7 @@ def index():
         logger.error(f"Error in index route: {e}", exc_info=True)
         return "An error occurred on the server", 500
 
-@app.route('/hot_suburbs')
+@app.route('/hot_suburbs', methods=["GET", "POST"])
 def hot_suburbs():
     global NATIONAL_MEDIAN
     start_time = time.time()
@@ -347,7 +355,18 @@ def hot_suburbs():
         suburb_medians = df.groupby(['Suburb', 'Postcode'])['Price'].median().reset_index()
         postcode_to_region = {pc: region for region, postcodes in REGION_POSTCODE_LIST.items() for pc in postcodes}
         suburb_medians['Region'] = suburb_medians['Postcode'].map(postcode_to_region)
-        hot_suburbs_df = suburb_medians[suburb_medians['Price'] < NATIONAL_MEDIAN].sort_values(by='Price')
+        hot_suburbs_df = suburb_medians[suburb_medians['Price'] < NATIONAL_MEDIAN]
+        
+        sort_by = request.form.get("sort_by", "Suburb")  # Default to Suburb
+        if sort_by == "Suburb":
+            hot_suburbs_df = hot_suburbs_df.sort_values(by='Suburb')
+        elif sort_by == "Postcode":
+            hot_suburbs_df = hot_suburbs_df.sort_values(by='Postcode')
+        elif sort_by == "Region":
+            hot_suburbs_df = hot_suburbs_df.sort_values(by='Region')
+        elif sort_by == "Median Price":
+            hot_suburbs_df = hot_suburbs_df.sort_values(by='Price')
+        
         hot_suburbs = [
             {
                 'suburb': row['Suburb'],
@@ -361,7 +380,8 @@ def hot_suburbs():
         response = render_template("hot_suburbs.html",
                                   data_source="NSW Valuer General Data",
                                   hot_suburbs=hot_suburbs,
-                                  national_median=NATIONAL_MEDIAN)
+                                  national_median=NATIONAL_MEDIAN,
+                                  sort_by=sort_by)
         elapsed_time = time.time() - start_time
         logger.info(f"Hot_suburbs route completed in {elapsed_time:.2f} seconds")
         log_memory_usage()

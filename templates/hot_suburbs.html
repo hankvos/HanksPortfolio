@@ -9,6 +9,16 @@
     <div class="data-source">{{ data_source }}</div>
     <div class="container">
         <h1>Hot Suburbs (Below National Median: ${{ "{:,.0f}".format(national_median) }})</h1>
+        <a href="/" class="button">Back to Dashboard</a>
+        <form method="POST" action="/hot_suburbs">
+            <label for="sort_by">Sort By:</label>
+            <select name="sort_by" id="sort_by" onchange="this.form.submit()">
+                <option value="Suburb" {% if sort_by == "Suburb" %}selected{% endif %}>Suburb</option>
+                <option value="Postcode" {% if sort_by == "Postcode" %}selected{% endif %}>Postcode</option>
+                <option value="Region" {% if sort_by == "Region" %}selected{% endif %}>Region</option>
+                <option value="Median Price" {% if sort_by == "Median Price" %}selected{% endif %}>Median Price</option>
+            </select>
+        </form>
         <table class="hot-suburbs-table">
             <tr>
                 <th>Suburb</th>
@@ -18,14 +28,22 @@
             </tr>
             {% for suburb in hot_suburbs %}
             <tr>
-                <td>{{ suburb.suburb }}</td>
+                <td>
+                    <form method="POST" action="/" style="display:inline;">
+                        <input type="hidden" name="region" value="{{ suburb.region }}">
+                        <input type="hidden" name="postcode" value="{{ suburb.postcode }}">
+                        <input type="hidden" name="suburb" value="{{ suburb.suburb }}">
+                        <input type="hidden" name="property_type" value="HOUSE">
+                        <input type="hidden" name="sort_by" value="Street">
+                        <a href="#" onclick="this.parentNode.submit(); return false;">{{ suburb.suburb }}</a>
+                    </form>
+                </td>
                 <td>{{ suburb.postcode }}</td>
                 <td>{{ suburb.region }}</td>
                 <td>{{ suburb.median_price | currency }}</td>
             </tr>
             {% endfor %}
         </table>
-        <a href="/" class="button">Back to Dashboard</a>
     </div>
 </body>
 </html>

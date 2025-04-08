@@ -139,3 +139,12 @@ iframe {
 .stats {
     margin-top: 20px;
 }
+
+a {
+    color: #4682B4;
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
