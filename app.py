@@ -194,7 +194,7 @@ def load_property_data():
             logger.info(f"Loaded {len(result_df)} records into DataFrame in {time.time() - start_time:.2f} seconds")
 
         df = result_df
-        initial_load_complete = True
+        initial_load_complete = True  # This is fine here since it's in the main thread or locked scope
         logger.info("Data load completed successfully")
         log_memory_usage()
         return df
@@ -512,12 +512,14 @@ def pre_generate_charts_async():
             logger.error(f"Error in pre_generate_charts_async: {e}", exc_info=True)
 
 def load_data_async():
+    global df, initial_load_complete  # Declare globals to modify them in the thread
     logger.info("Starting async data load...")
     try:
-        load_property_data()
+        df = load_property_data()  # This will set initial_load_complete = True internally
         logger.info("Async data load completed.")
     except Exception as e:
         logger.error(f"Error in load_data_async: {e}", exc_info=True)
+        initial_load_complete = False  # Ensure it's False on failure
 
 @app.route('/health')
 def health_check():
