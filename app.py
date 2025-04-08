@@ -502,30 +502,6 @@ def pre_generate_charts():
     except Exception as e:
         logger.error(f"Error in pre_generate_charts: {e}", exc_info=True)
 
-def pre_generate_charts_async():
-    global charts_pre_generated
-    if not charts_pre_generated:
-        logger.info("Starting async pre-generation of default charts...")
-        try:
-            pre_generate_charts()
-            charts_pre_generated = True
-            logger.info("Async pre-generation completed.")
-        except Exception as e:
-            logger.error(f"Error in pre_generate_charts_async: {e}", exc_info=True)
-
-def load_data_async():
-    global df
-    logger.info("Starting async data load...")
-    try:
-        df = load_property_data()
-        initial_load_complete.set()
-        logger.info("Async set initial_load_complete")
-        logger.info("Async data load completed.")
-    except Exception as e:
-        logger.error(f"Error in load_data_async: {e}", exc_info=True)
-        initial_load_complete.clear()
-        logger.info("Async cleared initial_load_complete due to error")
-
 @app.route('/health')
 def health_check():
     global last_health_status
@@ -554,7 +530,8 @@ def index():
         
         if not charts_pre_generated and os.environ.get("RENDER"):
             logger.info("Triggering chart pre-generation in background")
-            threading.Thread(target=pre_generate_charts_async, daemon=True).start()
+            threading.Thread(target=pre_generate_charts, daemon=True).start()
+            charts_pre_generated = True
 
         selected_region = request.form.get("region", "") if request.method == "POST" else ""
         selected_postcode = request.form.get("postcode", "") if request.method == "POST" else ""
@@ -699,13 +676,11 @@ def static_files(filename):
         logger.error(f"Error serving static file {filename}: {e}", exc_info=True)
         return "Static file not found", 404
 
-# Modify Gunicorn command to use 1 worker
-if os.environ.get("RENDER"):
-    logger.info("Running on Render, starting async data load with 1 worker")
-    threading.Thread(target=load_data_async, daemon=True).start()
-else:
-    load_property_data()
-    pre_generate_charts()
+# Load data synchronously before Gunicorn starts
+logger.info("Starting synchronous data load before Gunicorn...")
+load_property_data()
+logger.info("Synchronous data load completed.")
+pre_generate_charts()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
@@ -716,5 +691,4 @@ else:
     app.logger.setLevel(gunicorn_logger.level)
     port = int(os.environ.get("PORT", 10000))
     logger.info(f"Starting gunicorn on port {port} with 1 worker")
-    # Update Gunicorn command in Render's start script via environment variable or command
     os.environ["GUNICORN_CMD_ARGS"] = f"--bind 0.0.0.0:{port} --workers 1"
