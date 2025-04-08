@@ -58,6 +58,23 @@ button {
     border: none;
 }
 
+.button {
+    display: inline-block;
+    padding: 8px 16px; /* Slightly smaller than the submit button for distinction */
+    margin: 10px 0; /* Space above and below */
+    background: #4682B4; /* Matches the submit button */
+    color: white;
+    text-decoration: none; /* Removes underline from <a> tag */
+    border-radius: 4px; /* Slight rounding for a polished look */
+    text-align: center;
+    width: 100%; /* Matches the width of other form elements */
+    box-sizing: border-box;
+}
+
+.button:hover {
+    background: #36648B; /* Darker shade on hover for interactivity */
+}
+
 .error {
     color: red;
 }
