@@ -36,33 +36,38 @@
     <script>
         let timeoutId;
 
-        // Poll the server every 5 seconds to check if data is loaded
         function checkDataStatus() {
+            console.log("Polling /health...");
             fetch('/health')
                 .then(response => {
-                    if (response.ok) {
-                        // If health check passes, redirect to main page
+                    console.log("Health response status:", response.status);
+                    return response.text();
+                })
+                .then(data => {
+                    console.log("Health response body:", data);
+                    if (data === "OK") {
+                        console.log("Data loaded, redirecting to /");
                         window.location.href = '/';
                     } else {
-                        throw new Error('Health check failed');
+                        console.log("Data not yet loaded, retrying in 5s");
+                        setTimeout(checkDataStatus, 5000);
                     }
                 })
                 .catch(error => {
-                    console.log('Data not yet loaded, retrying...', error);
-                    setTimeout(checkDataStatus, 5000); // Retry after 5 seconds
+                    console.error("Health check error:", error);
+                    setTimeout(checkDataStatus, 5000);
                 });
         }
 
-        // Set a timeout to show an error message after 60 seconds
         function startTimeout() {
             timeoutId = setTimeout(() => {
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('error').style.display = 'block';
-            }, 60000); // 60 seconds
+            }, 60000);
         }
 
-        // Start polling and timeout when the page loads
         window.onload = function() {
+            console.log("Loading page loaded, starting health check");
             checkDataStatus();
             startTimeout();
         };

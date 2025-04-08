@@ -9,7 +9,7 @@ from functools import lru_cache
 import sys
 import time
 import threading
-import psutil  # New import for memory monitoring
+import psutil
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -31,7 +31,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
-# Region and postcode mappings
+# Region and postcode mappings (unchanged)
 REGION_POSTCODE_LIST = {
     "Central Coast": ["2083", "2250", "2251", "2256", "2257", "2258", "2259", "2260", "2261", "2262", "2263", "2775"],
     "Coffs Harbour - Grafton": ["2370", "2441", "2448", "2449", "2450", "2452", "2453", "2454", "2455", "2456", "2460", "2462", "2463", "2464", "2465", "2466", "2469"],
@@ -224,7 +224,7 @@ def generate_region_median_chart():
         plt.savefig(chart_path)
         plt.close()
         logger.info(f"Region median chart saved to {chart_path}")
-        return "static/region_median_prices.png"
+        return chart_path
     except Exception as e:
         logger.error(f"Error generating region median chart: {e}", exc_info=True)
         return None
@@ -372,7 +372,7 @@ def generate_heatmap_cached(region=None, postcode=None, suburb=None):
         m.save(heatmap_path)
         elapsed_time = time.time() - start_time
         logger.info(f"Heatmap generated and saved to {heatmap_path} in {elapsed_time:.2f} seconds")
-        return f"/static/{os.path.basename(heatmap_path)}"
+        return heatmap_path
     except Exception as e:
         logger.error(f"Error generating heatmap: {e}", exc_info=True)
         return None
@@ -522,52 +522,53 @@ def load_data_async():
 @app.route('/health')
 def health_check():
     logger.debug("Health check endpoint called")
-    return "OK", 200
+    status = "OK" if initial_load_complete else "LOADING"
+    return status, 200
 
 @app.route('/', methods=["GET", "POST"])
 def index():
     global charts_pre_generated
     start_time = time.time()
     logger.info("Starting index route")
+    log_memory_usage()
     
+    if not initial_load_complete:
+        logger.info("Data not yet loaded, showing loading page")
+        return render_template("loading.html")
+    
+    logger.info("Data loaded, proceeding with index route")
     try:
-        if not initial_load_complete:
-            logger.info("Data not yet loaded, showing loading page")
-            return render_template("loading.html")
-        
-        logger.info("Data loaded, proceeding with index route")
         df = load_property_data()
-        logger.info(f"DataFrame loaded successfully with {len(df)} rows")
-        log_memory_usage()
+        logger.info(f"DataFrame loaded with {len(df)} rows")
         
-        # Trigger chart pre-generation after first successful load if not done
         if not charts_pre_generated and os.environ.get("RENDER"):
             logger.info("Triggering chart pre-generation in background")
             threading.Thread(target=pre_generate_charts_async, daemon=True).start()
 
-        selected_region = request.form.get("region", None) if request.method == "POST" else None
-        selected_postcode = request.form.get("postcode", None) if request.method == "POST" else None
-        selected_suburb = request.form.get("suburb", None) if request.method == "POST" else None
+        selected_region = request.form.get("region", "") if request.method == "POST" else ""
+        selected_postcode = request.form.get("postcode", "") if request.method == "POST" else ""
+        selected_suburb = request.form.get("suburb", "") if request.method == "POST" else ""
         selected_property_type = request.form.get("property_type", "HOUSE") if request.method == "POST" else "HOUSE"
         sort_by = request.form.get("sort_by", "Settlement Date") if request.method == "POST" else "Settlement Date"
         logger.info(f"Form data: region={selected_region}, postcode={selected_postcode}, suburb={selected_suburb}, property_type={selected_property_type}, sort_by={sort_by}")
-        
+
         filtered_df = df.copy()
         if selected_region:
             filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
+            logger.debug(f"Filtered by region {selected_region}: {len(filtered_df)} rows")
         if selected_postcode:
             filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
+            logger.debug(f"Filtered by postcode {selected_postcode}: {len(filtered_df)} rows")
         if selected_suburb:
             filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
+            logger.debug(f"Filtered by suburb {selected_suburb}: {len(filtered_df)} rows")
         if selected_property_type != "ALL":
             filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
-        logger.info(f"Filtered DataFrame size: {len(filtered_df)} rows")
+            logger.debug(f"Filtered by property_type {selected_property_type}: {len(filtered_df)} rows")
         
         heatmap_path = generate_heatmap_cached(selected_region, selected_postcode, selected_suburb)
-        logger.info(f"Heatmap path generated: {heatmap_path}")
-        if heatmap_path and not os.path.exists(heatmap_path.lstrip('/')):
-            logger.warning(f"Heatmap file {heatmap_path} does not exist on disk")
-        
+        logger.info(f"Heatmap path: {heatmap_path}")
+
         median_chart_path = None
         price_hist_path = None
         region_timeline_path = None
@@ -579,28 +580,21 @@ def index():
         
         if selected_region or selected_postcode or selected_suburb:
             median_chart_path, price_hist_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path = generate_charts_cached(selected_region, selected_postcode, selected_suburb)
-            logger.info(f"Charts generated: median={median_chart_path}, hist={price_hist_path}, region={region_timeline_path}, postcode={postcode_timeline_path}, suburb={suburb_timeline_path}")
-            for path in [median_chart_path, price_hist_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path]:
-                if path and not os.path.exists(path):
-                    logger.warning(f"Chart file {path} does not exist on disk")
+            logger.info(f"Charts: median={median_chart_path}, hist={price_hist_path}, region={region_timeline_path}, postcode={postcode_timeline_path}, suburb={suburb_timeline_path}")
         if not selected_region and not selected_postcode and not selected_suburb:
             region_median_chart_path = generate_region_median_chart()
-            logger.info(f"Region median chart path: {region_median_chart_path}")
-            if region_median_chart_path and not os.path.exists(region_median_chart_path):
-                logger.warning(f"Region median chart file {region_median_chart_path} does not exist on disk")
+            logger.info(f"Region median chart: {region_median_chart_path}")
         elif selected_region and not selected_postcode and not selected_suburb:
             postcode_median_chart_path = generate_postcode_median_chart(region=selected_region)
-            logger.info(f"Postcode median chart path: {postcode_median_chart_path}")
-            if postcode_median_chart_path and not os.path.exists(postcode_median_chart_path):
-                logger.warning(f"Postcode median chart file {postcode_median_chart_path} does not exist on disk")
+            logger.info(f"Postcode median chart: {postcode_median_chart_path}")
         elif selected_postcode and not selected_suburb:
             suburb_median_chart_path = generate_suburb_median_chart(selected_postcode)
-            logger.info(f"Suburb median chart path: {suburb_median_chart_path}")
-            if suburb_median_chart_path and not os.path.exists(suburb_median_chart_path):
-                logger.warning(f"Suburb median chart file {suburb_median_chart_path} does not exist on disk")
-        
+            logger.info(f"Suburb median chart: {suburb_median_chart_path}")
+
         properties = None
-        if selected_region or selected_postcode or selected_suburb:
+        avg_price = None
+        stats = {}
+        if not filtered_df.empty:
             filtered_df["Address"] = filtered_df["Street"] + ", " + filtered_df["Suburb"] + " NSW " + filtered_df["Postcode"]
             filtered_df["Map Link"] = filtered_df["Address"].apply(
                 lambda addr: f"https://www.google.com/maps/place/{addr.replace(' ', '+')}"
@@ -614,56 +608,41 @@ def index():
             else:  # Price
                 properties = filtered_df.sort_values(by="Price")[["Address", "Price", "Settlement Date", "Block Size", "Map Link"]].to_dict(orient="records")
             logger.info(f"Properties generated: {len(properties)} entries")
-        
-        if filtered_df.empty and (selected_region or selected_postcode or selected_suburb):
-            logger.info("No properties found for filters, rendering with error message")
-            return render_template("index.html", 
-                                   regions=REGION_POSTCODE_LIST.keys(), 
-                                   postcodes=[], 
-                                   suburbs=[], 
-                                   property_types=["ALL", "HOUSE", "UNIT", "COMMERCIAL", "FARM", "VACANT LAND"], 
-                                   heatmap_path=heatmap_path, 
-                                   median_chart_path=median_chart_path,
-                                   region_median_chart_path=region_median_chart_path,
-                                   postcode_median_chart_path=postcode_median_chart_path,
-                                   suburb_median_chart_path=suburb_median_chart_path,
-                                   data_source="NSW Valuer General Data", 
-                                   error="No properties found for the selected filters.")
+            avg_price = filtered_df["Price"].mean()
+            stats = {
+                "mean": filtered_df["Price"].mean(),
+                "median": filtered_df["Price"].median(),
+                "std": filtered_df["Price"].std()
+            }
         
         unique_postcodes = sorted(filtered_df["Postcode"].unique().tolist()) if (selected_region or selected_postcode) else []
         unique_suburbs = sorted(filtered_df["Suburb"].unique().tolist()) if (selected_region or selected_postcode or selected_suburb) else []
-        avg_price = filtered_df["Price"].mean() if not filtered_df.empty else None
-        stats_dict = {
-            "mean": filtered_df["Price"].mean(),
-            "median": filtered_df["Price"].median(),
-            "std": filtered_df["Price"].std()
-        } if not filtered_df.empty else {}
-        logger.info(f"Stats: avg_price={avg_price}, unique_postcodes={len(unique_postcodes)}, unique_suburbs={len(unique_suburbs)}")
-        
-        logger.info("Rendering index.html with all data")
-        response = render_template("index.html", 
-                                  regions=REGION_POSTCODE_LIST.keys(),
+        logger.info(f"Stats: avg_price={avg_price}, postcodes={len(unique_postcodes)}, suburbs={len(unique_suburbs)}")
+
+        logger.info("Rendering index.html")
+        response = render_template("index.html",
+                                  data_source="NSW Valuer General Data",
+                                  regions=sorted(REGION_POSTCODE_LIST.keys()),
                                   postcodes=unique_postcodes,
                                   suburbs=unique_suburbs,
                                   property_types=["ALL", "HOUSE", "UNIT", "COMMERCIAL", "FARM", "VACANT LAND"],
-                                  properties=properties,
-                                  avg_price=avg_price,
-                                  stats=stats_dict,
-                                  selected_region=selected_region or "",
-                                  selected_postcode=selected_postcode or "",
-                                  selected_suburb=selected_suburb or "",
+                                  selected_region=selected_region,
+                                  selected_postcode=selected_postcode,
+                                  selected_suburb=selected_suburb,
                                   selected_property_type=selected_property_type,
                                   sort_by=sort_by,
                                   heatmap_path=heatmap_path,
+                                  region_median_chart_path=region_median_chart_path,
+                                  postcode_median_chart_path=postcode_median_chart_path,
+                                  suburb_median_chart_path=suburb_median_chart_path,
                                   median_chart_path=median_chart_path,
                                   price_hist_path=price_hist_path,
                                   region_timeline_path=region_timeline_path,
                                   postcode_timeline_path=postcode_timeline_path,
                                   suburb_timeline_path=suburb_timeline_path,
-                                  region_median_chart_path=region_median_chart_path,
-                                  postcode_median_chart_path=postcode_median_chart_path,
-                                  suburb_median_chart_path=suburb_median_chart_path,
-                                  data_source="NSW Valuer General Data")
+                                  properties=properties,
+                                  avg_price=avg_price,
+                                  stats=stats)
         elapsed_time = time.time() - start_time
         logger.info(f"Index route completed in {elapsed_time:.2f} seconds")
         log_memory_usage()
@@ -676,7 +655,6 @@ def index():
 def get_postcodes():
     try:
         if not initial_load_complete:
-            logger.info("Data not yet loaded for get_postcodes")
             return jsonify({"error": "Data still loading"}), 503
         region = request.args.get('region')
         postcodes = REGION_POSTCODE_LIST.get(region, [])
@@ -689,7 +667,6 @@ def get_postcodes():
 def get_suburbs():
     try:
         if not initial_load_complete:
-            logger.info("Data not yet loaded for get_suburbs")
             return jsonify({"error": "Data still loading"}), 503
         df = load_property_data()
         region = request.args.get('region')
@@ -703,42 +680,6 @@ def get_suburbs():
         logger.error(f"Error in get_suburbs: {e}", exc_info=True)
         return jsonify({"error": "Server error"}), 500
 
-@app.route('/hot_suburbs', methods=["GET", "POST"])
-def hot_suburbs():
-    try:
-        if not initial_load_complete:
-            logger.info("Data not yet loaded for hot_suburbs")
-            return render_template("loading.html")
-        
-        if request.method == "POST":
-            return redirect(url_for('index'), code=307)
-
-        df = load_property_data()
-        allowed_postcodes = set().union(*REGION_POSTCODE_LIST.values())
-        filtered_df = df[df["Postcode"].isin(allowed_postcodes)]
-        postcode_to_region = {pc: region for region, postcodes in REGION_POSTCODE_LIST.items() for pc in postcodes}
-        suburb_medians = filtered_df.groupby(["Suburb", "Postcode"])["Price"].median().reset_index()
-        suburb_medians["Region"] = suburb_medians["Postcode"].map(postcode_to_region)
-        hot_suburbs_df = suburb_medians[suburb_medians["Price"] < 900000].sort_values(by="Price")
-        hot_suburbs_list = hot_suburbs_df.to_dict(orient="records")
-        
-        return render_template("index.html",
-                               regions=REGION_POSTCODE_LIST.keys(),
-                               postcodes=[],
-                               suburbs=[],
-                               property_types=["ALL", "HOUSE", "UNIT", "COMMERCIAL", "FARM", "VACANT LAND"],
-                               hot_suburbs=hot_suburbs_list,
-                               data_source="NSW Valuer General Data",
-                               heatmap_path=generate_heatmap_cached(),
-                               selected_region="",
-                               selected_postcode="",
-                               selected_suburb="",
-                               selected_property_type="HOUSE",
-                               sort_by="Settlement Date")
-    except Exception as e:
-        logger.error(f"Error in hot_suburbs route: {e}", exc_info=True)
-        return "An error occurred on the server", 500
-
 @app.route('/static/<path:filename>')
 def static_files(filename):
     try:
@@ -749,7 +690,6 @@ def static_files(filename):
 
 if os.environ.get("RENDER"):
     threading.Thread(target=load_data_async, daemon=True).start()
-    # Chart pre-generation moved to first index() call
 else:
     load_property_data()
     pre_generate_charts()
