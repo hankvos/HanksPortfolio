@@ -16,7 +16,7 @@ import numpy as np
 from scipy import stats
 from flask import Flask, render_template, request, jsonify, send_from_directory
 import folium
-from folium.plugins import HeatMap
+from folium.plugins import HeatMap, MarkerCluster
 
 app = Flask(__name__)
 
@@ -183,8 +183,6 @@ def load_property_data():
     else:
         NATIONAL_MEDIAN = result_df["Price"].median()
         logger.info(f"National median price calculated: ${NATIONAL_MEDIAN:,.0f}")
-        johns_river_sales = result_df[result_df["Suburb"] == "JOHNS RIVER"][["Price", "Settlement Date", "Street"]].to_dict('records')
-        logger.info(f"Johns River raw sales data: {johns_river_sales}")
         logger.info(f"Processed {len(result_df)} records from 2025.zip")
         logger.info(f"Raw Property Type counts (field 18): {dict(raw_property_types)}")
         logger.info(f"Processed Property Type counts: {result_df['Property Type'].value_counts().to_dict()}")
@@ -201,32 +199,48 @@ def generate_heatmap():
     df = load_property_data()
     m = folium.Map(location=[-32.5, 152.5], zoom_start=8)
     coords = df[df["Price"] < 9_000_000].dropna(subset=["Price"])
-    heatmap_data = [
-        [SUBURB_COORDS.get(row["Postcode"], {}).get(row["Suburb"], POSTCODE_COORDS.get(row["Postcode"], REGION_CENTERS.get(next(iter(REGION_POSTCODE_LIST)), [-32.5, 152.5])))[0],
-         SUBURB_COORDS.get(row["Postcode"], {}).get(row["Suburb"], POSTCODE_COORDS.get(row["Postcode"], REGION_CENTERS.get(next(iter(REGION_POSTCODE_LIST)), [-32.5, 152.5])))[1],
-         row["Price"]]
-        for _, row in coords.iterrows()
-    ]
-    HeatMap(heatmap_data, radius=15).add_to(m)
+    marker_cluster = MarkerCluster().add_to(m)  # Add marker clustering
+    for _, row in coords.iterrows():
+        lat = SUBURB_COORDS.get(row["Postcode"], {}).get(row["Suburb"], POSTCODE_COORDS.get(row["Postcode"], REGION_CENTERS.get(next(iter(REGION_POSTCODE_LIST)), [-32.5, 152.5])))[0]
+        lon = SUBURB_COORDS.get(row["Postcode"], {}).get(row["Suburb"], POSTCODE_COORDS.get(row["Postcode"], REGION_CENTERS.get(next(iter(REGION_POSTCODE_LIST)), [-32.5, 152.5])))[1]
+        folium.Marker(
+            location=[lat, lon],
+            popup=f"{row['Suburb']} ({row['Postcode']}): ${row['Price']:,.0f}",
+        ).add_to(marker_cluster)
     heatmap_path = "static/heatmap.html"
     m.save(heatmap_path)
     return heatmap_path
 
-def generate_region_median_chart():
+def generate_region_median_chart(selected_region=None, selected_postcode=None):
     df = load_property_data()
-    region_medians = df.groupby('Postcode')['Price'].median().reset_index()
-    postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
-    region_medians['Region'] = region_medians['Postcode'].map(postcode_to_region)
-    region_medians = region_medians.groupby('Region')['Price'].median().sort_values()
+    if selected_postcode:
+        # Show median prices by suburb for the selected postcode
+        median_data = df[df["Postcode"] == selected_postcode].groupby('Suburb')['Price'].median().sort_values()
+        title = f"Median House Prices by Suburb (Postcode {selected_postcode})"
+        x_label = "Suburb"
+    elif selected_region:
+        # Show median prices by postcode for the selected region
+        postcodes = REGION_POSTCODE_LIST.get(selected_region, [])
+        median_data = df[df["Postcode"].isin(postcodes)].groupby('Postcode')['Price'].median().sort_values()
+        title = f"Median House Prices by Postcode ({selected_region})"
+        x_label = "Postcode"
+    else:
+        # Default: Show median prices by region
+        region_medians = df.groupby('Postcode')['Price'].median().reset_index()
+        postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
+        region_medians['Region'] = region_medians['Postcode'].map(postcode_to_region)
+        median_data = region_medians.groupby('Region')['Price'].median().sort_values()
+        title = "Median House Prices by Region"
+        x_label = "Region"
     
-    plt.figure(figsize=(10, 6))
-    region_medians.plot(kind='bar', color='skyblue')  # Swapped to vertical bars
-    plt.title('Median House Prices by Region')
-    plt.ylabel('Median Price ($)')  # Swapped to y-axis
-    plt.xlabel('Region')  # Swapped to x-axis
-    for i, v in enumerate(region_medians):
-        plt.text(i, v, f"${v:,.0f}", ha='center', va='bottom')  # Adjusted for vertical bars
-    plt.xticks(rotation=45, ha='right')  # Rotate labels for readability
+    plt.figure(figsize=(12, 6))  # Increased width for better fit
+    median_data.plot(kind='bar', color='skyblue')
+    plt.title(title)
+    plt.ylabel('Median Price ($)')
+    plt.xlabel(x_label)
+    for i, v in enumerate(median_data):
+        plt.text(i, v, f"${v:,.0f}", ha='center', va='bottom')
+    plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
     chart_path = "static/region_median_chart.png"
     plt.savefig(chart_path)
@@ -236,7 +250,7 @@ def generate_region_median_chart():
 def pre_generate_charts():
     logger.info("Pre-generating charts...")
     heatmap_path = generate_heatmap()
-    region_median_chart_path = generate_region_median_chart()
+    region_median_chart_path = generate_region_median_chart()  # Default chart
     logger.info(f"Generated heatmap at {heatmap_path}")
     logger.info(f"Generated region median chart at {region_median_chart_path}")
 
@@ -270,9 +284,12 @@ def index():
         selected_region = request.form.get("region", "")
         selected_postcode = request.form.get("postcode", "")
         selected_suburb = request.form.get("suburb", "")
-        selected_property_type = request.form.get("property_type", "HOUSE")  # Default to HOUSE
+        selected_property_type = request.form.get("property_type", "HOUSE")
         sort_by = request.form.get("sort_by", "Settlement Date")
         filtered_df = df.copy()
+        
+        # Generate chart based on selection
+        chart_path = generate_region_median_chart(selected_region, selected_postcode)
         
         # Only apply filters and populate properties if a filter is selected
         properties = []
@@ -334,11 +351,6 @@ def hot_suburbs():
     logger.info("Data loaded, proceeding with hot_suburbs route")
     try:
         df = load_property_data()
-        johns_river_sales = df[df["Suburb"] == "JOHNS RIVER"]["Price"].tolist()
-        logger.info(f"Johns River sales for median calculation: {johns_river_sales}")
-        johns_river_median = df[df["Suburb"] == "JOHNS RIVER"]["Price"].median()
-        logger.info(f"Johns River calculated median price: {johns_river_median}")
-        
         suburb_medians = df.groupby(['Suburb', 'Postcode'])['Price'].median().reset_index()
         postcode_to_region = {pc: region for region, postcodes in REGION_POSTCODE_LIST.items() for pc in postcodes}
         suburb_medians['Region'] = suburb_medians['Postcode'].map(postcode_to_region)

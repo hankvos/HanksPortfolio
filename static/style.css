@@ -32,7 +32,6 @@ body {
 .right-column {
     flex: 2;
     min-width: 400px;
-    position: relative; /* Retained for potential future use */
 }
 
 h1 {
@@ -85,11 +84,12 @@ button {
 
 .chart-container {
     text-align: right;
-    margin-bottom: 20px; /* Space between chart and properties */
+    margin-bottom: 20px;
 }
 
 .region-chart {
-    max-width: 400px; /* Adjust size as needed */
+    width: 100%; /* Fit the container width */
+    max-width: 800px; /* Increased max width */
     height: auto;
 }
 
