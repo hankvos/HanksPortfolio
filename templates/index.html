@@ -39,6 +39,7 @@
     <div class="container">
         <div class="left-column">
             <h1>Northern NSW Property Sales Analyser</h1>
+            <a href="https://nsw-property-analyser.onrender.com/hot_suburbs" class="button">Hot Suburbs</a>
             {% if heatmap_path %}
                 <iframe src="{{ url_for('static', filename=heatmap_path.split('/')[-1]) }}" frameborder="0"></iframe>
             {% endif %}
@@ -128,7 +129,7 @@
                     <img src="{{ url_for('static', filename=suburb_timeline_path.split('/')[-1]) }}" alt="Suburb Price Timeline Chart">
                 </div>
             {% endif %}
-            {% if properties %}
+            {% if properties and (selected_region or selected_postcode or selected_suburb) %}
                 <p>Average Price: ${{ "{:,.0f}".format(avg_price) }}</p>
                 <div class="stats">
                     <p>Mean Price: ${{ "{:,.0f}".format(stats.mean) }}</p>
@@ -153,7 +154,7 @@
                         </tr>
                     {% endfor %}
                 </table>
-            {% else %}
+            {% elif not (selected_region or selected_postcode or selected_suburb) %}
                 <p>Select a region, postcode, or suburb to view properties.</p>
             {% endif %}
         </div>

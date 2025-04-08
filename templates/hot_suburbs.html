@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Hot Suburbs - NSW Property Sales</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="data-source">{{ data_source }}</div>
+    <div class="container">
+        <h1>Hot Suburbs (Median Price < $9,000,000)</h1>
+        <a href="/" class="button">Back to Main Page</a>
+        {% if hot_suburbs %}
+            <table>
+                <tr>
+                    <th>Suburb</th>
+                    <th>Postcode</th>
+                    <th>Region</th>
+                    <th>Median Price</th>
+                </tr>
+                {% for suburb in hot_suburbs %}
+                    <tr>
+                        <td>{{ suburb.suburb }}</td>
+                        <td>{{ suburb.postcode }}</td>
+                        <td>{{ suburb.region }}</td>
+                        <td>${{ "{:,.0f}".format(suburb.median_price) }}</td>
+                    </tr>
+                {% endfor %}
+            </table>
+        {% else %}
+            <p>No suburbs found with median price under $9,000,000.</p>
+        {% endif %}
+    </div>
+</body>
+</html>
