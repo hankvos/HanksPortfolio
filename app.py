@@ -80,6 +80,7 @@ SUBURB_COORDS = {
 df = None
 data_loaded = False
 last_health_status = None
+NATIONAL_MEDIAN = None
 
 @app.template_filter('currency')
 def currency_filter(value):
@@ -93,7 +94,7 @@ def log_memory_usage():
     logger.info(f"Memory usage: RSS={mem_info.rss / 1024**2:.2f} MB, VMS={mem_info.vms / 1024**2:.2f} MB")
 
 def load_property_data():
-    global df, data_loaded
+    global df, data_loaded, NATIONAL_MEDIAN
     if data_loaded:
         logger.debug("Data already loaded, returning cached DataFrame")
         return df
@@ -167,6 +168,7 @@ def load_property_data():
                                             temp_df = temp_df[temp_df["Settlement Date"].dt.year >= 2024]
                                             temp_df["Settlement Date"] = temp_df["Settlement Date"].dt.strftime('%d/%m/%Y')
                                             temp_df = temp_df[temp_df["Postcode"].isin(ALLOWED_POSTCODES)]
+                                            temp_df = temp_df[temp_df["Price"] >= 10000]  # Filter implausible prices
                                             if not temp_df.empty and not temp_df.isna().all().all():
                                                 result_df = pd.concat([result_df, temp_df], ignore_index=True)
                                 except Exception as e:
@@ -179,7 +181,9 @@ def load_property_data():
     if result_df.empty:
         logger.error("No valid DAT files processed or no data matches filters.")
     else:
-        # Log Johns River sales after loading
+        # Calculate national median from all sales in the regions
+        NATIONAL_MEDIAN = result_df["Price"].median()
+        logger.info(f"National median price calculated: ${NATIONAL_MEDIAN:,.0f}")
         johns_river_sales = result_df[result_df["Suburb"] == "JOHNS RIVER"][["Price", "Settlement Date", "Street"]].to_dict('records')
         logger.info(f"Johns River raw sales data: {johns_river_sales}")
         logger.info(f"Processed {len(result_df)} records from 2025.zip")
@@ -194,9 +198,25 @@ def load_property_data():
     log_memory_usage()
     return df
 
-# [generate_region_median_chart, generate_postcode_median_chart, generate_suburb_median_chart unchanged]
+def generate_heatmap():
+    df = load_property_data()
+    m = folium.Map(location=[-32.5, 152.5], zoom_start=8)
+    coords = df[df["Price"] < 9_000_000].dropna(subset=["Price"])
+    heatmap_data = [
+        [SUBURB_COORDS.get(row["Postcode"], {}).get(row["Suburb"], POSTCODE_COORDS.get(row["Postcode"], REGION_CENTERS.get(next(iter(REGION_POSTCODE_LIST)), [-32.5, 152.5])))[0],
+         SUBURB_COORDS.get(row["Postcode"], {}).get(row["Suburb"], POSTCODE_COORDS.get(row["Postcode"], REGION_CENTERS.get(next(iter(REGION_POSTCODE_LIST)), [-32.5, 152.5])))[1],
+         row["Price"]]
+        for _, row in coords.iterrows()
+    ]
+    HeatMap(heatmap_data, radius=15).add_to(m)
+    heatmap_path = "static/heatmap.html"
+    m.save(heatmap_path)
+    return heatmap_path
 
-# [generate_heatmap_cached, generate_charts_cached, pre_generate_charts unchanged]
+def pre_generate_charts():
+    logger.info("Pre-generating charts...")
+    heatmap_path = generate_heatmap()
+    logger.info(f"Generated heatmap at {heatmap_path}")
 
 @app.route('/health')
 def health_check():
@@ -222,7 +242,35 @@ def index():
     try:
         df = load_property_data()
         logger.info(f"DataFrame loaded with {len(df)} rows")
-        # ... (rest of index route unchanged) ...
+        unique_postcodes = sorted(df["Postcode"].unique())
+        unique_suburbs = sorted(df["Suburb"].unique())
+        selected_region = request.form.get("region", "")
+        selected_postcode = request.form.get("postcode", "")
+        selected_suburb = request.form.get("suburb", "")
+        selected_property_type = request.form.get("property_type", "ALL")
+        sort_by = request.form.get("sort_by", "Settlement Date")
+        filtered_df = df.copy()
+        if selected_region:
+            filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
+        if selected_postcode:
+            filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
+        if selected_suburb:
+            filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
+        if selected_property_type != "ALL":
+            filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
+        properties = filtered_df.sort_values(by=sort_by).to_dict('records')
+        avg_price = filtered_df["Price"].mean() if not filtered_df.empty else 0
+        stats = {"mean": filtered_df["Price"].mean(), "median": filtered_df["Price"].median(), "std": filtered_df["Price"].std()} if not filtered_df.empty else {"mean": 0, "median": 0, "std": 0}
+        heatmap_path = "static/heatmap.html" if os.path.exists("static/heatmap.html") else None
+        region_median_chart_path = None
+        postcode_median_chart_path = None
+        suburb_median_chart_path = None
+        median_chart_path = None
+        price_hist_path = None
+        region_timeline_path = None
+        postcode_timeline_path = None
+        suburb_timeline_path = None
+        
         logger.info("Rendering index.html")
         response = render_template("index.html",
                                   data_source="NSW Valuer General Data",
@@ -257,6 +305,7 @@ def index():
 
 @app.route('/hot_suburbs')
 def hot_suburbs():
+    global NATIONAL_MEDIAN
     start_time = time.time()
     logger.info("Starting hot_suburbs route")
     log_memory_usage()
@@ -268,27 +317,15 @@ def hot_suburbs():
     logger.info("Data loaded, proceeding with hot_suburbs route")
     try:
         df = load_property_data()
-        # Log Johns River sales before median calculation
         johns_river_sales = df[df["Suburb"] == "JOHNS RIVER"]["Price"].tolist()
         logger.info(f"Johns River sales for median calculation: {johns_river_sales}")
         johns_river_median = df[df["Suburb"] == "JOHNS RIVER"]["Price"].median()
         logger.info(f"Johns River calculated median price: {johns_river_median}")
         
-        # Group by suburb and calculate median price
         suburb_medians = df.groupby(['Suburb', 'Postcode'])['Price'].median().reset_index()
-        
-        # Map postcodes to regions
-        postcode_to_region = {}
-        for region, postcodes in REGION_POSTCODE_LIST.items():
-            for pc in postcodes:
-                postcode_to_region[pc] = region
-        
+        postcode_to_region = {pc: region for region, postcodes in REGION_POSTCODE_LIST.items() for pc in postcodes}
         suburb_medians['Region'] = suburb_medians['Postcode'].map(postcode_to_region)
-        
-        # Filter for median price < 9M
-        hot_suburbs_df = suburb_medians[suburb_medians['Price'] < 9000000]
-        
-        # Prepare data for template
+        hot_suburbs_df = suburb_medians[suburb_medians['Price'] < NATIONAL_MEDIAN]
         hot_suburbs = [
             {
                 'suburb': row['Suburb'],
@@ -301,7 +338,8 @@ def hot_suburbs():
         
         response = render_template("hot_suburbs.html",
                                   data_source="NSW Valuer General Data",
-                                  hot_suburbs=hot_suburbs)
+                                  hot_suburbs=hot_suburbs,
+                                  national_median=NATIONAL_MEDIAN)
         elapsed_time = time.time() - start_time
         logger.info(f"Hot_suburbs route completed in {elapsed_time:.2f} seconds")
         log_memory_usage()
@@ -347,7 +385,7 @@ def static_files(filename):
         logger.error(f"Error serving static file {filename}: {e}", exc_info=True)
         return "Static file not found", 404
 
-# Load data synchronously before Gunicorn starts
+# Load data and pre-generate charts before Gunicorn starts
 logger.info("Starting synchronous data load before Gunicorn...")
 load_property_data()
 logger.info("Synchronous data load completed.")
