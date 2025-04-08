@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 # Suppress Matplotlib font debug messages
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
+# Region and postcode mappings
 REGION_POSTCODE_LIST = {
     "Central Coast": ["2083", "2250", "2251", "2256", "2257", "2258", "2259", "2260", "2261", "2262", "2263", "2775"],
     "Coffs Harbour - Grafton": ["2370", "2441", "2448", "2449", "2450", "2452", "2453", "2454", "2455", "2456", "2460", "2462", "2463", "2464", "2465", "2466", "2469"],
@@ -79,6 +80,7 @@ SUBURB_COORDS = {
     }
 }
 
+# Global variables
 df = None
 initial_load_complete = False
 data_loading_lock = threading.Lock()
@@ -521,12 +523,16 @@ def index():
             logger.info("Data not yet loaded, showing loading page")
             return render_template("loading.html")
         
+        logger.info("Data loaded, proceeding with index route")
         df = load_property_data()
+        logger.info(f"DataFrame loaded successfully with {len(df)} rows")
+        
         selected_region = request.form.get("region", None) if request.method == "POST" else None
         selected_postcode = request.form.get("postcode", None) if request.method == "POST" else None
         selected_suburb = request.form.get("suburb", None) if request.method == "POST" else None
         selected_property_type = request.form.get("property_type", "HOUSE") if request.method == "POST" else "HOUSE"
         sort_by = request.form.get("sort_by", "Settlement Date") if request.method == "POST" else "Settlement Date"
+        logger.info(f"Form data: region={selected_region}, postcode={selected_postcode}, suburb={selected_suburb}, property_type={selected_property_type}, sort_by={sort_by}")
         
         filtered_df = df.copy()
         if selected_region:
@@ -537,8 +543,12 @@ def index():
             filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
         if selected_property_type != "ALL":
             filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
+        logger.info(f"Filtered DataFrame size: {len(filtered_df)} rows")
         
         heatmap_path = generate_heatmap_cached(selected_region, selected_postcode, selected_suburb)
+        logger.info(f"Heatmap path generated: {heatmap_path}")
+        if heatmap_path and not os.path.exists(heatmap_path.lstrip('/')):
+            logger.warning(f"Heatmap file {heatmap_path} does not exist on disk")
         
         median_chart_path = None
         price_hist_path = None
@@ -551,13 +561,25 @@ def index():
         
         if selected_region or selected_postcode or selected_suburb:
             median_chart_path, price_hist_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path = generate_charts_cached(selected_region, selected_postcode, selected_suburb)
+            logger.info(f"Charts generated: median={median_chart_path}, hist={price_hist_path}, region={region_timeline_path}, postcode={postcode_timeline_path}, suburb={suburb_timeline_path}")
+            for path in [median_chart_path, price_hist_path, region_timeline_path, postcode_timeline_path, suburb_timeline_path]:
+                if path and not os.path.exists(path):
+                    logger.warning(f"Chart file {path} does not exist on disk")
         if not selected_region and not selected_postcode and not selected_suburb:
             region_median_chart_path = generate_region_median_chart()
             logger.info(f"Region median chart path: {region_median_chart_path}")
+            if region_median_chart_path and not os.path.exists(region_median_chart_path):
+                logger.warning(f"Region median chart file {region_median_chart_path} does not exist on disk")
         elif selected_region and not selected_postcode and not selected_suburb:
             postcode_median_chart_path = generate_postcode_median_chart(region=selected_region)
+            logger.info(f"Postcode median chart path: {postcode_median_chart_path}")
+            if postcode_median_chart_path and not os.path.exists(postcode_median_chart_path):
+                logger.warning(f"Postcode median chart file {postcode_median_chart_path} does not exist on disk")
         elif selected_postcode and not selected_suburb:
             suburb_median_chart_path = generate_suburb_median_chart(selected_postcode)
+            logger.info(f"Suburb median chart path: {suburb_median_chart_path}")
+            if suburb_median_chart_path and not os.path.exists(suburb_median_chart_path):
+                logger.warning(f"Suburb median chart file {suburb_median_chart_path} does not exist on disk")
         
         properties = None
         if selected_region or selected_postcode or selected_suburb:
@@ -573,8 +595,10 @@ def index():
                 properties = [{k: v.strftime('%d/%m/%Y') if k == "Settlement Date" else v for k, v in prop.items()} for prop in properties.to_dict(orient="records")]
             else:  # Price
                 properties = filtered_df.sort_values(by="Price")[["Address", "Price", "Settlement Date", "Block Size", "Map Link"]].to_dict(orient="records")
+            logger.info(f"Properties generated: {len(properties)} entries")
         
         if filtered_df.empty and (selected_region or selected_postcode or selected_suburb):
+            logger.info("No properties found for filters, rendering with error message")
             return render_template("index.html", 
                                    regions=REGION_POSTCODE_LIST.keys(), 
                                    postcodes=[], 
@@ -596,33 +620,35 @@ def index():
             "median": filtered_df["Price"].median(),
             "std": filtered_df["Price"].std()
         } if not filtered_df.empty else {}
+        logger.info(f"Stats: avg_price={avg_price}, unique_postcodes={len(unique_postcodes)}, unique_suburbs={len(unique_suburbs)}")
         
+        logger.info("Rendering index.html with all data")
+        response = render_template("index.html", 
+                                  regions=REGION_POSTCODE_LIST.keys(),
+                                  postcodes=unique_postcodes,
+                                  suburbs=unique_suburbs,
+                                  property_types=["ALL", "HOUSE", "UNIT", "COMMERCIAL", "FARM", "VACANT LAND"],
+                                  properties=properties,
+                                  avg_price=avg_price,
+                                  stats=stats_dict,
+                                  selected_region=selected_region or "",
+                                  selected_postcode=selected_postcode or "",
+                                  selected_suburb=selected_suburb or "",
+                                  selected_property_type=selected_property_type,
+                                  sort_by=sort_by,
+                                  heatmap_path=heatmap_path,
+                                  median_chart_path=median_chart_path,
+                                  price_hist_path=price_hist_path,
+                                  region_timeline_path=region_timeline_path,
+                                  postcode_timeline_path=postcode_timeline_path,
+                                  suburb_timeline_path=suburb_timeline_path,
+                                  region_median_chart_path=region_median_chart_path,
+                                  postcode_median_chart_path=postcode_median_chart_path,
+                                  suburb_median_chart_path=suburb_median_chart_path,
+                                  data_source="NSW Valuer General Data")
         elapsed_time = time.time() - start_time
         logger.info(f"Index route completed in {elapsed_time:.2f} seconds")
-        
-        return render_template("index.html", 
-                               regions=REGION_POSTCODE_LIST.keys(),
-                               postcodes=unique_postcodes,
-                               suburbs=unique_suburbs,
-                               property_types=["ALL", "HOUSE", "UNIT", "COMMERCIAL", "FARM", "VACANT LAND"],
-                               properties=properties,
-                               avg_price=avg_price,
-                               stats=stats_dict,
-                               selected_region=selected_region or "",
-                               selected_postcode=selected_postcode or "",
-                               selected_suburb=selected_suburb or "",
-                               selected_property_type=selected_property_type,
-                               sort_by=sort_by,
-                               heatmap_path=heatmap_path,
-                               median_chart_path=median_chart_path,
-                               price_hist_path=price_hist_path,
-                               region_timeline_path=region_timeline_path,
-                               postcode_timeline_path=postcode_timeline_path,
-                               suburb_timeline_path=suburb_timeline_path,
-                               region_median_chart_path=region_median_chart_path,
-                               postcode_median_chart_path=postcode_median_chart_path,
-                               suburb_median_chart_path=suburb_median_chart_path,
-                               data_source="NSW Valuer General Data")
+        return response
     except Exception as e:
         logger.error(f"Error in index route: {e}", exc_info=True)
         return "An error occurred on the server", 500
