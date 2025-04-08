@@ -21,7 +21,7 @@
 
         function updateSuburbs() {
             const region = document.getElementById("region").value;
-            const postcode = document.getElementById("postcode").value;
+            const postcode = document.getElementById("postcode").value; // Fixed typo: getById → getElementById
             fetch(`/get_suburbs?region=${encodeURIComponent(region)}&postcode=${encodeURIComponent(postcode)}`)
                 .then(response => response.json())
                 .then(data => {
@@ -39,7 +39,6 @@
     <div class="container">
         <div class="left-column">
             <h1>Northern NSW Property Sales Analyser</h1>
-            <a href="/hot_suburbs" class="button">Hot Suburbs</a> <!-- Added Hot Suburbs button -->
             {% if heatmap_path %}
                 <iframe src="{{ url_for('static', filename=heatmap_path.split('/')[-1]) }}" frameborder="0"></iframe>
             {% endif %}
@@ -84,6 +83,7 @@
 
                 <button type="submit">Filter</button>
             </form>
+            <a href="/hot_suburbs" class="button">Hot Suburbs</a> <!-- Moved here, below Filter button -->
             {% if error %}
                 <p class="error">Error: {{ error }}</p>
             {% endif %}
