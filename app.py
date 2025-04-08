@@ -83,6 +83,7 @@ SUBURB_COORDS = {
 df = None
 initial_load_complete = False
 data_loading_lock = threading.Lock()
+status_lock = threading.Lock()  # New lock for initial_load_complete
 charts_pre_generated = False
 
 @app.template_filter('currency')
@@ -110,7 +111,8 @@ def load_property_data():
         if not zip_files:
             logger.error("No ZIP files found in the directory.")
             df = pd.DataFrame()
-            initial_load_complete = True
+            with status_lock:
+                initial_load_complete = True
             return df
 
         result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"])
@@ -194,7 +196,8 @@ def load_property_data():
             logger.info(f"Loaded {len(result_df)} records into DataFrame in {time.time() - start_time:.2f} seconds")
 
         df = result_df
-        initial_load_complete = True  # This is fine here since it's in the main thread or locked scope
+        with status_lock:
+            initial_load_complete = True  # Safely set within lock
         logger.info("Data load completed successfully")
         log_memory_usage()
         return df
@@ -512,20 +515,24 @@ def pre_generate_charts_async():
             logger.error(f"Error in pre_generate_charts_async: {e}", exc_info=True)
 
 def load_data_async():
-    global df, initial_load_complete  # Declare globals to modify them in the thread
+    global df, initial_load_complete
     logger.info("Starting async data load...")
     try:
-        df = load_property_data()  # This will set initial_load_complete = True internally
+        df = load_property_data()
+        with status_lock:
+            initial_load_complete = True  # Safely set within lock
         logger.info("Async data load completed.")
     except Exception as e:
         logger.error(f"Error in load_data_async: {e}", exc_info=True)
-        initial_load_complete = False  # Ensure it's False on failure
+        with status_lock:
+            initial_load_complete = False
 
 @app.route('/health')
 def health_check():
     logger.debug("Health check endpoint called")
-    status = "OK" if initial_load_complete else "LOADING"
-    logger.info(f"Returning health status: '{status}'")  # Log the exact response
+    with status_lock:
+        status = "OK" if initial_load_complete else "LOADING"
+    logger.info(f"Returning health status: '{status}'")
     return status, 200
 
 @app.route('/', methods=["GET", "POST"])
@@ -535,9 +542,10 @@ def index():
     logger.info("Starting index route")
     log_memory_usage()
     
-    if not initial_load_complete:
-        logger.info("Data not yet loaded, showing loading page")
-        return render_template("loading.html")
+    with status_lock:
+        if not initial_load_complete:
+            logger.info("Data not yet loaded, showing loading page")
+            return render_template("loading.html")
     
     logger.info("Data loaded, proceeding with index route")
     try:
@@ -657,8 +665,9 @@ def index():
 @app.route('/get_postcodes')
 def get_postcodes():
     try:
-        if not initial_load_complete:
-            return jsonify({"error": "Data still loading"}), 503
+        with status_lock:
+            if not initial_load_complete:
+                return jsonify({"error": "Data still loading"}), 503
         region = request.args.get('region')
         postcodes = REGION_POSTCODE_LIST.get(region, [])
         return jsonify(postcodes)
@@ -669,8 +678,9 @@ def get_postcodes():
 @app.route('/get_suburbs')
 def get_suburbs():
     try:
-        if not initial_load_complete:
-            return jsonify({"error": "Data still loading"}), 503
+        with status_lock:
+            if not initial_load_complete:
+                return jsonify({"error": "Data still loading"}), 503
         df = load_property_data()
         region = request.args.get('region')
         postcode = request.args.get('postcode')
