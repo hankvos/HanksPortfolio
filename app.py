@@ -85,7 +85,7 @@ initial_load_complete = False
 data_loading_lock = threading.Lock()
 status_lock = threading.Lock()
 charts_pre_generated = False
-last_health_status = None  # New: Track last logged health status
+last_health_status = None
 
 @app.template_filter('currency')
 def currency_filter(value):
@@ -114,6 +114,7 @@ def load_property_data():
             df = pd.DataFrame()
             with status_lock:
                 initial_load_complete = True
+                logger.info("Set initial_load_complete to True (no data)")
             return df
 
         result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"])
@@ -199,6 +200,7 @@ def load_property_data():
         df = result_df
         with status_lock:
             initial_load_complete = True
+            logger.info("Set initial_load_complete to True (data loaded)")
         logger.info("Data load completed successfully")
         log_memory_usage()
         return df
@@ -522,18 +524,20 @@ def load_data_async():
         df = load_property_data()
         with status_lock:
             initial_load_complete = True
+            logger.info("Async set initial_load_complete to True")
         logger.info("Async data load completed.")
     except Exception as e:
         logger.error(f"Error in load_data_async: {e}", exc_info=True)
         with status_lock:
             initial_load_complete = False
+            logger.info("Async set initial_load_complete to False due to error")
 
 @app.route('/health')
 def health_check():
     global last_health_status
     with status_lock:
         current_status = "OK" if initial_load_complete else "LOADING"
-    # Log only when status changes
+        logger.debug(f"Health check: initial_load_complete={initial_load_complete}, returning '{current_status}'")
     if current_status != last_health_status:
         logger.info(f"Health status changed to: {current_status}")
         last_health_status = current_status
