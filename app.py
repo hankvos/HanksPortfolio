@@ -83,8 +83,9 @@ SUBURB_COORDS = {
 df = None
 initial_load_complete = False
 data_loading_lock = threading.Lock()
-status_lock = threading.Lock()  # New lock for initial_load_complete
+status_lock = threading.Lock()
 charts_pre_generated = False
+last_health_status = None  # New: Track last logged health status
 
 @app.template_filter('currency')
 def currency_filter(value):
@@ -197,7 +198,7 @@ def load_property_data():
 
         df = result_df
         with status_lock:
-            initial_load_complete = True  # Safely set within lock
+            initial_load_complete = True
         logger.info("Data load completed successfully")
         log_memory_usage()
         return df
@@ -520,7 +521,7 @@ def load_data_async():
     try:
         df = load_property_data()
         with status_lock:
-            initial_load_complete = True  # Safely set within lock
+            initial_load_complete = True
         logger.info("Async data load completed.")
     except Exception as e:
         logger.error(f"Error in load_data_async: {e}", exc_info=True)
@@ -529,11 +530,14 @@ def load_data_async():
 
 @app.route('/health')
 def health_check():
-    logger.debug("Health check endpoint called")
+    global last_health_status
     with status_lock:
-        status = "OK" if initial_load_complete else "LOADING"
-    logger.info(f"Returning health status: '{status}'")
-    return status, 200
+        current_status = "OK" if initial_load_complete else "LOADING"
+    # Log only when status changes
+    if current_status != last_health_status:
+        logger.info(f"Health status changed to: {current_status}")
+        last_health_status = current_status
+    return current_status, 200
 
 @app.route('/', methods=["GET", "POST"])
 def index():
