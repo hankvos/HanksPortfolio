@@ -21,10 +21,9 @@ from folium.plugins import HeatMap
 
 app = Flask(__name__)
 
-# Configure logging
-log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+# Configure logging to DEBUG level
 logging.basicConfig(
-    level=getattr(logging, log_level, logging.INFO),
+    level=logging.DEBUG,  # Changed to DEBUG to see health check details
     stream=sys.stdout,
     format='%(levelname)s:%(name)s:%(message)s'
 )
@@ -81,7 +80,7 @@ SUBURB_COORDS = {
 
 # Global variables
 df = None
-initial_load_complete = False
+initial_load_complete = threading.Event()  # Replaced boolean with Event for thread safety
 data_loading_lock = threading.Lock()
 status_lock = threading.Lock()
 charts_pre_generated = False
@@ -99,9 +98,9 @@ def log_memory_usage():
     logger.info(f"Memory usage: RSS={mem_info.rss / 1024**2:.2f} MB, VMS={mem_info.vms / 1024**2:.2f} MB")
 
 def load_property_data():
-    global df, initial_load_complete
+    global df
     with data_loading_lock:
-        if initial_load_complete:
+        if initial_load_complete.is_set():
             logger.debug("Data already loaded, returning cached DataFrame")
             return df
         
@@ -112,9 +111,8 @@ def load_property_data():
         if not zip_files:
             logger.error("No ZIP files found in the directory.")
             df = pd.DataFrame()
-            with status_lock:
-                initial_load_complete = True
-                logger.info("Set initial_load_complete to True (no data)")
+            initial_load_complete.set()
+            logger.info("Set initial_load_complete (no data)")
             return df
 
         result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"])
@@ -198,9 +196,8 @@ def load_property_data():
             logger.info(f"Loaded {len(result_df)} records into DataFrame in {time.time() - start_time:.2f} seconds")
 
         df = result_df
-        with status_lock:
-            initial_load_complete = True
-            logger.info("Set initial_load_complete to True (data loaded)")
+        initial_load_complete.set()
+        logger.info("Set initial_load_complete (data loaded)")
         logger.info("Data load completed successfully")
         log_memory_usage()
         return df
@@ -518,30 +515,27 @@ def pre_generate_charts_async():
             logger.error(f"Error in pre_generate_charts_async: {e}", exc_info=True)
 
 def load_data_async():
-    global df, initial_load_complete
+    global df
     logger.info("Starting async data load...")
     try:
         df = load_property_data()
-        with status_lock:
-            initial_load_complete = True
-            logger.info("Async set initial_load_complete to True")
+        initial_load_complete.set()
+        logger.info("Async set initial_load_complete")
         logger.info("Async data load completed.")
     except Exception as e:
         logger.error(f"Error in load_data_async: {e}", exc_info=True)
-        with status_lock:
-            initial_load_complete = False
-            logger.info("Async set initial_load_complete to False due to error")
+        initial_load_complete.clear()
+        logger.info("Async cleared initial_load_complete due to error")
 
 @app.route('/health')
 def health_check():
     global last_health_status
-    with status_lock:
-        current_status = "OK" if initial_load_complete else "LOADING"
-        logger.debug(f"Health check: initial_load_complete={initial_load_complete}, returning '{current_status}'")
-    if current_status != last_health_status:
-        logger.info(f"Health status changed to: {current_status}")
-        last_health_status = current_status
-    return current_status, 200
+    status = "OK" if initial_load_complete.is_set() else "LOADING"
+    logger.debug(f"Health check: initial_load_complete={initial_load_complete.is_set()}, returning '{status}'")
+    if status != last_health_status:
+        logger.info(f"Health status changed to: {status}")
+        last_health_status = status
+    return status, 200
 
 @app.route('/', methods=["GET", "POST"])
 def index():
@@ -550,10 +544,9 @@ def index():
     logger.info("Starting index route")
     log_memory_usage()
     
-    with status_lock:
-        if not initial_load_complete:
-            logger.info("Data not yet loaded, showing loading page")
-            return render_template("loading.html")
+    if not initial_load_complete.is_set():
+        logger.info("Data not yet loaded, showing loading page")
+        return render_template("loading.html")
     
     logger.info("Data loaded, proceeding with index route")
     try:
@@ -673,9 +666,8 @@ def index():
 @app.route('/get_postcodes')
 def get_postcodes():
     try:
-        with status_lock:
-            if not initial_load_complete:
-                return jsonify({"error": "Data still loading"}), 503
+        if not initial_load_complete.is_set():
+            return jsonify({"error": "Data still loading"}), 503
         region = request.args.get('region')
         postcodes = REGION_POSTCODE_LIST.get(region, [])
         return jsonify(postcodes)
@@ -686,9 +678,8 @@ def get_postcodes():
 @app.route('/get_suburbs')
 def get_suburbs():
     try:
-        with status_lock:
-            if not initial_load_complete:
-                return jsonify({"error": "Data still loading"}), 503
+        if not initial_load_complete.is_set():
+            return jsonify({"error": "Data still loading"}), 503
         df = load_property_data()
         region = request.args.get('region')
         postcode = request.args.get('postcode')
