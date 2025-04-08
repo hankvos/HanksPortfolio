@@ -2,77 +2,161 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Loading - NSW Property Sales</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            background-color: #f0f0f0;
-        }
-        .loading {
-            text-align: center;
-            color: #333;
-        }
-        h1 {
-            color: #333;
-        }
-        .loading-notice {
-            color: #555;
-            font-style: italic;
-            margin: 10px 0;
-        }
-        .error {
-            color: red;
-            font-weight: bold;
-            margin: 10px 0;
-            display: none;
-        }
-    </style>
+    <title>Northern NSW Property Sales Analyser</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script>
-        let timeoutId;
-
-        function checkDataStatus() {
-            console.log("Polling /health...");
-            fetch('/health')
-                .then(response => {
-                    console.log("Health response status:", response.status);
-                    if (response.ok) {
-                        console.log("Health check OK, redirecting to /");
-                        window.location.href = '/';
-                    } else {
-                        throw new Error('Health check failed with status ' + response.status);
-                    }
-                })
-                .catch(error => {
-                    console.log('Data not yet loaded, retrying in 5s:', error.message);
-                    setTimeout(checkDataStatus, 5000);
+        function updatePostcodes() {
+            const region = document.getElementById("region").value;
+            fetch(`/get_postcodes?region=${encodeURIComponent(region)}`)
+                .then(response => response.json())
+                .then(data => {
+                    const postcodeSelect = document.getElementById("postcode");
+                    postcodeSelect.innerHTML = '<option value="">Select Postcode</option>';
+                    data.forEach(postcode => {
+                        postcodeSelect.innerHTML += `<option value="${postcode}">${postcode}</option>`;
+                    });
+                    updateSuburbs();
                 });
         }
 
-        function startTimeout() {
-            timeoutId = setTimeout(() => {
-                document.getElementById('loading').style.display = 'none';
-                document.getElementById('error').style.display = 'block';
-            }, 60000);
+        function updateSuburbs() {
+            const region = document.getElementById("region").value;
+            const postcode = document.getElementById("postcode").value;
+            fetch(`/get_suburbs?region=${encodeURIComponent(region)}&postcode=${encodeURIComponent(postcode)}`)
+                .then(response => response.json())
+                .then(data => {
+                    const suburbSelect = document.getElementById("suburb");
+                    suburbSelect.innerHTML = '<option value="">Select Suburb</option>';
+                    data.forEach(suburb => {
+                        suburbSelect.innerHTML += `<option value="${suburb}">${suburb}</option>`;
+                    });
+                });
         }
-
-        window.onload = function() {
-            console.log("Loading page loaded, starting health check");
-            checkDataStatus();
-            startTimeout();
-        };
     </script>
 </head>
 <body>
-    <div class="loading">
-        <h1>Loading Property Data...</h1>
-        <p id="loading" class="loading-notice">Please wait, this may take a moment.</p>
-        <p id="error" class="error">Taking longer than expected. Please try refreshing the page or contact support if this persists.</p>
+    <div class="data-source">{{ data_source }}</div>
+    <div class="container">
+        <div class="left-column">
+            <h1>Northern NSW Property Sales Analyser</h1>
+            {% if heatmap_path %}
+                <iframe src="{{ url_for('static', filename=heatmap_path.split('/')[-1]) }}" frameborder="0"></iframe>
+            {% endif %}
+            <form method="POST">
+                <label for="region">Region:</label>
+                <select id="region" name="region" onchange="updatePostcodes()">
+                    <option value="">Select Region</option>
+                    {% for region in regions %}
+                        <option value="{{ region }}" {% if region == selected_region %}selected{% endif %}>{{ region }}</option>
+                    {% endfor %}
+                </select>
+
+                <label for="postcode">Postcode:</label>
+                <select id="postcode" name="postcode" onchange="updateSuburbs()">
+                    <option value="">Select Postcode</option>
+                    {% for postcode in postcodes %}
+                        <option value="{{ postcode }}" {% if postcode == selected_postcode %}selected{% endif %}>{{ postcode }}</option>
+                    {% endfor %}
+                </select>
+
+                <label for="suburb">Suburb:</label>
+                <select id="suburb" name="suburb">
+                    <option value="">Select Suburb</option>
+                    {% for suburb in suburbs %}
+                        <option value="{{ suburb }}" {% if suburb == selected_suburb %}selected{% endif %}>{{ suburb }}</option>
+                    {% endfor %}
+                </select>
+
+                <label for="property_type">Property Type:</label>
+                <select id="property_type" name="property_type">
+                    {% for pt in property_types %}
+                        <option value="{{ pt }}" {% if pt == selected_property_type %}selected{% endif %}>{{ pt }}</option>
+                    {% endfor %}
+                </select>
+
+                <label for="sort_by">Sort By:</label>
+                <select id="sort_by" name="sort_by">
+                    <option value="Address" {% if sort_by == "Address" %}selected{% endif %}>Address</option>
+                    <option value="Price" {% if sort_by == "Price" %}selected{% endif %}>Price</option>
+                    <option value="Settlement Date" {% if sort_by == "Settlement Date" %}selected{% endif %}>Settlement Date</option>
+                </select>
+
+                <button type="submit">Filter</button>
+            </form>
+            {% if error %}
+                <p class="error">Error: {{ error }}</p>
+            {% endif %}
+        </div>
+        <div class="right-column">
+            {% if region_median_chart_path %}
+                <div class="chart">
+                    <img src="{{ url_for('static', filename=region_median_chart_path.split('/')[-1]) }}" alt="Median Price by Region">
+                </div>
+            {% endif %}
+            {% if postcode_median_chart_path %}
+                <div class="chart">
+                    <img src="{{ url_for('static', filename=postcode_median_chart_path.split('/')[-1]) }}" alt="Median Price by Postcode">
+                </div>
+            {% endif %}
+            {% if suburb_median_chart_path %}
+                <div class="chart">
+                    <img src="{{ url_for('static', filename=suburb_median_chart_path.split('/')[-1]) }}" alt="Median Price by Suburb">
+                </div>
+            {% endif %}
+            {% if median_chart_path %}
+                <div class="chart">
+                    <img src="{{ url_for('static', filename=median_chart_path.split('/')[-1]) }}" alt="Median House Price Chart">
+                </div>
+            {% endif %}
+            {% if price_hist_path %}
+                <div class="chart">
+                    <img src="{{ url_for('static', filename=price_hist_path.split('/')[-1]) }}" alt="Price Histogram">
+                </div>
+            {% endif %}
+            {% if region_timeline_path %}
+                <div class="chart">
+                    <img src="{{ url_for('static', filename=region_timeline_path.split('/')[-1]) }}" alt="Region Price Timeline Chart">
+                </div>
+            {% endif %}
+            {% if postcode_timeline_path %}
+                <div class="chart">
+                    <img src="{{ url_for('static', filename=postcode_timeline_path.split('/')[-1]) }}" alt="Postcode Price Timeline Chart">
+                </div>
+            {% endif %}
+            {% if suburb_timeline_path %}
+                <div class="chart">
+                    <img src="{{ url_for('static', filename=suburb_timeline_path.split('/')[-1]) }}" alt="Suburb Price Timeline Chart">
+                </div>
+            {% endif %}
+            {% if properties %}
+                <p>Average Price: ${{ "{:,.0f}".format(avg_price) }}</p>
+                <div class="stats">
+                    <p>Mean Price: ${{ "{:,.0f}".format(stats.mean) }}</p>
+                    <p>Median Price: ${{ "{:,.0f}".format(stats.median) }}</p>
+                    <p>Std Dev: ${{ "{:,.0f}".format(stats.std) }}</p>
+                </div>
+                <table>
+                    <tr>
+                        <th>Address</th>
+                        <th>Price</th>
+                        <th>Settlement Date</th>
+                        <th>Block Size (sqm)</th>
+                        <th>Map</th>
+                    </tr>
+                    {% for prop in properties %}
+                        <tr>
+                            <td>{{ prop["Address"] }}</td>
+                            <td>${{ "{:,.0f}".format(prop["Price"]) }}</td>
+                            <td>{{ prop["Settlement Date"] }}</td>
+                            <td>{{ "{:,.0f}".format(prop["Block Size"]) if prop["Block Size"] else "N/A" }}</td>
+                            <td><a href="{{ prop['Map Link'] }}" target="_blank">View</a></td>
+                        </tr>
+                    {% endfor %}
+                </table>
+            {% else %}
+                <p>Select a region, postcode, or suburb to view properties.</p>
+            {% endif %}
+        </div>
     </div>
 </body>
 </html>
