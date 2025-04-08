@@ -39,7 +39,7 @@
     <div class="container">
         <div class="left-column">
             <h1>Northern NSW Property Sales Analyser</h1>
-            <a href="https://nsw-property-analyser.onrender.com/hot_suburbs" class="button">Hot Suburbs</a>
+            <a href="/hot_suburbs" class="button">Hot Suburbs</a> <!-- Added Hot Suburbs button -->
             {% if heatmap_path %}
                 <iframe src="{{ url_for('static', filename=heatmap_path.split('/')[-1]) }}" frameborder="0"></iframe>
             {% endif %}
