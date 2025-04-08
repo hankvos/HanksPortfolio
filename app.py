@@ -23,7 +23,7 @@ app = Flask(__name__)
 
 # Configure logging to DEBUG level
 logging.basicConfig(
-    level=logging.DEBUG,  # Changed to DEBUG to see health check details
+    level=logging.DEBUG,
     stream=sys.stdout,
     format='%(levelname)s:%(name)s:%(message)s'
 )
@@ -80,9 +80,8 @@ SUBURB_COORDS = {
 
 # Global variables
 df = None
-initial_load_complete = threading.Event()  # Replaced boolean with Event for thread safety
+initial_load_complete = threading.Event()
 data_loading_lock = threading.Lock()
-status_lock = threading.Lock()
 charts_pre_generated = False
 last_health_status = None
 
@@ -700,7 +699,9 @@ def static_files(filename):
         logger.error(f"Error serving static file {filename}: {e}", exc_info=True)
         return "Static file not found", 404
 
+# Modify Gunicorn command to use 1 worker
 if os.environ.get("RENDER"):
+    logger.info("Running on Render, starting async data load with 1 worker")
     threading.Thread(target=load_data_async, daemon=True).start()
 else:
     load_property_data()
@@ -714,4 +715,6 @@ else:
     app.logger.handlers = gunicorn_logger.handlers
     app.logger.setLevel(gunicorn_logger.level)
     port = int(os.environ.get("PORT", 10000))
-    logger.info(f"Starting gunicorn on port {port}")
+    logger.info(f"Starting gunicorn on port {port} with 1 worker")
+    # Update Gunicorn command in Render's start script via environment variable or command
+    os.environ["GUNICORN_CMD_ARGS"] = f"--bind 0.0.0.0:{port} --workers 1"
