@@ -8,26 +8,24 @@ from collections import Counter
 from functools import lru_cache
 import sys
 import time
-import threading
 import psutil
 
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
-from flask import Flask, render_template, request, jsonify, send_from_directory, redirect, url_for
+from flask import Flask, render_template, request, jsonify, send_from_directory
 import folium
 from folium.plugins import HeatMap
 
 app = Flask(__name__)
 
-# Configure logging to DEBUG level
-logging.basicConfig(
-    level=logging.DEBUG,
-    stream=sys.stdout,
-    format='%(levelname)s:%(name)s:%(message)s'
-)
+# Configure logging with explicit handlers
 logger = logging.getLogger(__name__)
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter('%(levelname)s:%(name)s:%(message)s'))
+logger.handlers = [handler]
+logger.setLevel(logging.DEBUG)
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
 # Region and postcode mappings (unchanged)
@@ -80,9 +78,7 @@ SUBURB_COORDS = {
 
 # Global variables
 df = None
-initial_load_complete = threading.Event()
-data_loading_lock = threading.Lock()
-charts_pre_generated = False
+data_loaded = False  # Replace threading.Event with boolean
 last_health_status = None
 
 @app.template_filter('currency')
@@ -97,109 +93,108 @@ def log_memory_usage():
     logger.info(f"Memory usage: RSS={mem_info.rss / 1024**2:.2f} MB, VMS={mem_info.vms / 1024**2:.2f} MB")
 
 def load_property_data():
-    global df
-    with data_loading_lock:
-        if initial_load_complete.is_set():
-            logger.debug("Data already loaded, returning cached DataFrame")
-            return df
-        
-        start_time = time.time()
-        logger.info("Loading property data...")
-        log_memory_usage()
-        zip_files = [f for f in os.listdir() if f.endswith('.zip')]
-        if not zip_files:
-            logger.error("No ZIP files found in the directory.")
-            df = pd.DataFrame()
-            initial_load_complete.set()
-            logger.info("Set initial_load_complete (no data)")
-            return df
-
-        result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"])
-        raw_property_types = Counter()
-        allowed_types = {"RESIDENCE", "COMMERCIAL", "FARM", "VACANT LAND"}
-
-        for zip_file in sorted(zip_files, reverse=True):
-            if "2025.zip" not in zip_file:
-                logger.info(f"Skipping {zip_file} as we're focusing on 2025.zip")
-                continue
-            
-            try:
-                with zipfile.ZipFile(zip_file, 'r') as outer_zip:
-                    nested_zips = [f for f in outer_zip.namelist() if f.endswith('.zip')]
-                    for nested_zip_name in sorted(nested_zips, reverse=True):
-                        try:
-                            with outer_zip.open(nested_zip_name) as nested_zip_file:
-                                with zipfile.ZipFile(io.BytesIO(nested_zip_file.read())) as nested_zip:
-                                    dat_files = [f for f in nested_zip.namelist() if f.endswith('.DAT')]
-                                    for dat_file in dat_files:
-                                        try:
-                                            with nested_zip.open(dat_file) as f:
-                                                lines = f.read().decode('latin1').splitlines()
-                                                parsed_rows = []
-                                                unit_numbers = {}
-                                                for line in lines:
-                                                    row = line.split(';')
-                                                    if row[0] == 'C' and len(row) > 5 and row[5]:
-                                                        unit_numbers[row[2]] = row[5]
-                                                    if row[0] == 'B' and len(row) > 18:
-                                                        raw_property_types[row[18]] += 1
-                                                        if row[18] in allowed_types:
-                                                            parsed_rows.append(row)
-                                                temp_df = pd.DataFrame(parsed_rows)
-                                                if not temp_df.empty:
-                                                    temp_df = temp_df.rename(columns={
-                                                        7: "House Number",
-                                                        8: "StreetOnly",
-                                                        9: "Suburb",
-                                                        10: "Postcode",
-                                                        11: "Block Size",
-                                                        14: "Settlement Date",
-                                                        15: "Price",
-                                                        18: "Property Type",
-                                                        2: "Property ID"
-                                                    })
-                                                    temp_df["Unit Number"] = temp_df["Property ID"].map(unit_numbers).fillna("")
-                                                    temp_df["Street"] = temp_df["House Number"] + " " + temp_df["StreetOnly"]
-                                                    temp_df["Property Type"] = temp_df["Property Type"].replace("RESIDENCE", "HOUSE")
-                                                    temp_df["Property Type"] = temp_df.apply(
-                                                        lambda row: "UNIT" if (
-                                                            row["Property Type"] == "HOUSE" and 
-                                                            row["Unit Number"] and 
-                                                            re.match(r'^\d+[A-Za-z]?$', row["Unit Number"].strip())
-                                                        ) else row["Property Type"],
-                                                        axis=1
-                                                    )
-                                                    temp_df = temp_df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"]]
-                                                    temp_df["Postcode"] = temp_df["Postcode"].astype(str)
-                                                    temp_df["Price"] = pd.to_numeric(temp_df["Price"], errors='coerce', downcast='float')
-                                                    temp_df["Block Size"] = pd.to_numeric(temp_df["Block Size"], errors='coerce', downcast='float')
-                                                    temp_df["Settlement Date"] = pd.to_datetime(temp_df["Settlement Date"], format='%Y%m%d', errors='coerce')
-                                                    temp_df = temp_df[temp_df["Settlement Date"].dt.year >= 2024]
-                                                    temp_df["Settlement Date"] = temp_df["Settlement Date"].dt.strftime('%d/%m/%Y')
-                                                    temp_df = temp_df[temp_df["Postcode"].isin(ALLOWED_POSTCODES)]
-                                                    if not temp_df.empty and not temp_df.isna().all().all():
-                                                        result_df = pd.concat([result_df, temp_df], ignore_index=True)
-                                        except Exception as e:
-                                            logger.error(f"Error reading {dat_file} in {nested_zip_name}: {e}", exc_info=True)
-                        except Exception as e:
-                            logger.error(f"Error processing nested ZIP {nested_zip_name} in {zip_file}: {e}", exc_info=True)
-            except Exception as e:
-                logger.error(f"Error opening {zip_file}: {e}", exc_info=True)
-
-        if result_df.empty:
-            logger.error("No valid DAT files processed or no data matches filters.")
-        else:
-            logger.info(f"Processed {len(result_df)} records from 2025.zip")
-            logger.info(f"Raw Property Type counts (field 18): {dict(raw_property_types)}")
-            logger.info(f"Processed Property Type counts: {result_df['Property Type'].value_counts().to_dict()}")
-            logger.info(f"Loaded {len(result_df)} records into DataFrame in {time.time() - start_time:.2f} seconds")
-
-        df = result_df
-        initial_load_complete.set()
-        logger.info("Set initial_load_complete (data loaded)")
-        logger.info("Data load completed successfully")
-        log_memory_usage()
+    global df, data_loaded
+    if data_loaded:
+        logger.debug("Data already loaded, returning cached DataFrame")
         return df
+    
+    start_time = time.time()
+    logger.info("Loading property data...")
+    log_memory_usage()
+    zip_files = [f for f in os.listdir() if f.endswith('.zip')]
+    if not zip_files:
+        logger.error("No ZIP files found in the directory.")
+        df = pd.DataFrame()
+        data_loaded = True
+        logger.info("Set data_loaded (no data)")
+        return df
+
+    result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"])
+    raw_property_types = Counter()
+    allowed_types = {"RESIDENCE", "COMMERCIAL", "FARM", "VACANT LAND"}
+
+    for zip_file in sorted(zip_files, reverse=True):
+        if "2025.zip" not in zip_file:
+            logger.info(f"Skipping {zip_file} as we're focusing on 2025.zip")
+            continue
+        
+        try:
+            with zipfile.ZipFile(zip_file, 'r') as outer_zip:
+                nested_zips = [f for f in outer_zip.namelist() if f.endswith('.zip')]
+                for nested_zip_name in sorted(nested_zips, reverse=True):
+                    try:
+                        with outer_zip.open(nested_zip_name) as nested_zip_file:
+                            with zipfile.ZipFile(io.BytesIO(nested_zip_file.read())) as nested_zip:
+                                dat_files = [f for f in nested_zip.namelist() if f.endswith('.DAT')]
+                                for dat_file in dat_files:
+                                    try:
+                                        with nested_zip.open(dat_file) as f:
+                                            lines = f.read().decode('latin1').splitlines()
+                                            parsed_rows = []
+                                            unit_numbers = {}
+                                            for line in lines:
+                                                row = line.split(';')
+                                                if row[0] == 'C' and len(row) > 5 and row[5]:
+                                                    unit_numbers[row[2]] = row[5]
+                                                if row[0] == 'B' and len(row) > 18:
+                                                    raw_property_types[row[18]] += 1
+                                                    if row[18] in allowed_types:
+                                                        parsed_rows.append(row)
+                                            temp_df = pd.DataFrame(parsed_rows)
+                                            if not temp_df.empty:
+                                                temp_df = temp_df.rename(columns={
+                                                    7: "House Number",
+                                                    8: "StreetOnly",
+                                                    9: "Suburb",
+                                                    10: "Postcode",
+                                                    11: "Block Size",
+                                                    14: "Settlement Date",
+                                                    15: "Price",
+                                                    18: "Property Type",
+                                                    2: "Property ID"
+                                                })
+                                                temp_df["Unit Number"] = temp_df["Property ID"].map(unit_numbers).fillna("")
+                                                temp_df["Street"] = temp_df["House Number"] + " " + temp_df["StreetOnly"]
+                                                temp_df["Property Type"] = temp_df["Property Type"].replace("RESIDENCE", "HOUSE")
+                                                temp_df["Property Type"] = temp_df.apply(
+                                                    lambda row: "UNIT" if (
+                                                        row["Property Type"] == "HOUSE" and 
+                                                        row["Unit Number"] and 
+                                                        re.match(r'^\d+[A-Za-z]?$', row["Unit Number"].strip())
+                                                    ) else row["Property Type"],
+                                                    axis=1
+                                                )
+                                                temp_df = temp_df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"]]
+                                                temp_df["Postcode"] = temp_df["Postcode"].astype(str)
+                                                temp_df["Price"] = pd.to_numeric(temp_df["Price"], errors='coerce', downcast='float')
+                                                temp_df["Block Size"] = pd.to_numeric(temp_df["Block Size"], errors='coerce', downcast='float')
+                                                temp_df["Settlement Date"] = pd.to_datetime(temp_df["Settlement Date"], format='%Y%m%d', errors='coerce')
+                                                temp_df = temp_df[temp_df["Settlement Date"].dt.year >= 2024]
+                                                temp_df["Settlement Date"] = temp_df["Settlement Date"].dt.strftime('%d/%m/%Y')
+                                                temp_df = temp_df[temp_df["Postcode"].isin(ALLOWED_POSTCODES)]
+                                                if not temp_df.empty and not temp_df.isna().all().all():
+                                                    result_df = pd.concat([result_df, temp_df], ignore_index=True)
+                                    except Exception as e:
+                                        logger.error(f"Error reading {dat_file} in {nested_zip_name}: {e}", exc_info=True)
+                    except Exception as e:
+                        logger.error(f"Error processing nested ZIP {nested_zip_name} in {zip_file}: {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"Error opening {zip_file}: {e}", exc_info=True)
+
+    if result_df.empty:
+        logger.error("No valid DAT files processed or no data matches filters.")
+    else:
+        logger.info(f"Processed {len(result_df)} records from 2025.zip")
+        logger.info(f"Raw Property Type counts (field 18): {dict(raw_property_types)}")
+        logger.info(f"Processed Property Type counts: {result_df['Property Type'].value_counts().to_dict()}")
+        logger.info(f"Loaded {len(result_df)} records into DataFrame in {time.time() - start_time:.2f} seconds")
+
+    df = result_df
+    data_loaded = True
+    logger.info("Set data_loaded (data loaded)")
+    logger.info("Data load completed successfully")
+    log_memory_usage()
+    return df
 
 def generate_region_median_chart():
     try:
@@ -505,8 +500,8 @@ def pre_generate_charts():
 @app.route('/health')
 def health_check():
     global last_health_status
-    status = "OK" if initial_load_complete.is_set() else "LOADING"
-    logger.debug(f"Health check: initial_load_complete={initial_load_complete.is_set()}, returning '{status}'")
+    status = "OK" if data_loaded else "LOADING"
+    logger.debug(f"Health check: data_loaded={data_loaded}, returning '{status}'")
     if status != last_health_status:
         logger.info(f"Health status changed to: {status}")
         last_health_status = status
@@ -514,12 +509,11 @@ def health_check():
 
 @app.route('/', methods=["GET", "POST"])
 def index():
-    global charts_pre_generated
     start_time = time.time()
     logger.info("Starting index route")
     log_memory_usage()
     
-    if not initial_load_complete.is_set():
+    if not data_loaded:
         logger.info("Data not yet loaded, showing loading page")
         return render_template("loading.html")
     
@@ -527,11 +521,6 @@ def index():
     try:
         df = load_property_data()
         logger.info(f"DataFrame loaded with {len(df)} rows")
-        
-        if not charts_pre_generated and os.environ.get("RENDER"):
-            logger.info("Triggering chart pre-generation in background")
-            threading.Thread(target=pre_generate_charts, daemon=True).start()
-            charts_pre_generated = True
 
         selected_region = request.form.get("region", "") if request.method == "POST" else ""
         selected_postcode = request.form.get("postcode", "") if request.method == "POST" else ""
@@ -642,7 +631,7 @@ def index():
 @app.route('/get_postcodes')
 def get_postcodes():
     try:
-        if not initial_load_complete.is_set():
+        if not data_loaded:
             return jsonify({"error": "Data still loading"}), 503
         region = request.args.get('region')
         postcodes = REGION_POSTCODE_LIST.get(region, [])
@@ -654,7 +643,7 @@ def get_postcodes():
 @app.route('/get_suburbs')
 def get_suburbs():
     try:
-        if not initial_load_complete.is_set():
+        if not data_loaded:
             return jsonify({"error": "Data still loading"}), 503
         df = load_property_data()
         region = request.args.get('region')
