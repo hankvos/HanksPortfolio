@@ -2,39 +2,30 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Hot Suburbs (Median Price < ${{ "{:,.0f}".format(national_median) }})</title>
+    <title>Hot Suburbs</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <div class="data-source">{{ data_source }}</div>
     <div class="container">
-        <div class="left-column">
-            <h1>Hot Suburbs (Median Price < ${{ "{:,.0f}".format(national_median) }})</h1>
-            <a href="/" class="button">Back to Main Page</a>
-            <table>
-                <tr>
-                    <th>Suburb</th>
-                    <th>Postcode</th>
-                    <th>Region</th>
-                    <th>Median Price</th>
-                </tr>
-                {% for suburb in hot_suburbs %}
-                <tr>
-                    <td>
-                        <form method="POST" action="/" style="margin: 0;">
-                            <input type="hidden" name="suburb" value="{{ suburb.suburb }}">
-                            <input type="hidden" name="postcode" value="{{ suburb.postcode }}">
-                            <input type="hidden" name="region" value="{{ suburb.region }}">
-                            <button type="submit" style="background: none; border: none; padding: 0; color: blue; text-decoration: underline; cursor: pointer;">{{ suburb.suburb }}</button>
-                        </form>
-                    </td>
-                    <td>{{ suburb.postcode }}</td>
-                    <td>{{ suburb.region }}</td>
-                    <td>${{ "{:,.0f}".format(suburb.median_price) }}</td>
-                </tr>
-                {% endfor %}
-            </table>
-        </div>
+        <h1>Hot Suburbs (Below National Median: ${{ "{:,.0f}".format(national_median) }})</h1>
+        <table class="hot-suburbs-table">
+            <tr>
+                <th>Suburb</th>
+                <th>Postcode</th>
+                <th>Region</th>
+                <th>Median Price</th>
+            </tr>
+            {% for suburb in hot_suburbs %}
+            <tr>
+                <td>{{ suburb.suburb }}</td>
+                <td>{{ suburb.postcode }}</td>
+                <td>{{ suburb.region }}</td>
+                <td>{{ suburb.median_price | currency }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        <a href="/" class="button">Back to Dashboard</a>
     </div>
 </body>
 </html>

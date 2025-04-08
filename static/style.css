@@ -88,8 +88,8 @@ button {
 }
 
 .region-chart {
-    width: 100%; /* Fit the container width */
-    max-width: 800px; /* Increased max width */
+    width: 100%;
+    max-width: 800px;
     height: auto;
 }
 
@@ -115,7 +115,18 @@ th {
 
 th:last-child, td:last-child {
     text-align: center;
-    width: 60px;
+    width: 100px; /* Increased from 60px for readability */
+}
+
+.hot-suburbs-table {
+    width: 100%;
+    max-width: 1000px; /* Wider table for hot suburbs */
+    margin: 20px auto;
+}
+
+.hot-suburbs-table th, .hot-suburbs-table td {
+    padding: 12px; /* More padding for readability */
+    min-width: 100px; /* Minimum width for each column */
 }
 
 iframe {

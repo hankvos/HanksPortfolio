@@ -13,7 +13,6 @@
             {% if heatmap_path %}
             <iframe src="{{ url_for('static', filename='heatmap.html') }}" width="100%" height="300"></iframe>
             {% endif %}
-            <p>National Median Price: ${{ "{:,.0f}".format(national_median) }}</p>
             <form method="POST" action="/">
                 <label for="region">Region:</label>
                 <select name="region" id="region" onchange="this.form.submit()">
@@ -56,28 +55,29 @@
                 <img src="{{ url_for('static', filename='region_median_chart.png') }}" alt="Median House Prices" class="region-chart">
             </div>
             {% endif %}
+            <p>National Median Price: ${{ "{:,.0f}".format(national_median) }}</p>
             <div class="properties-container">
                 {% if properties %}
                 <h2>Properties (Average Price: {{ avg_price | currency }})</h2>
                 <table>
                     <tr>
-                        <th>Postcode</th>
-                        <th>Price</th>
-                        <th>Settlement Date</th>
-                        <th>Suburb</th>
-                        <th>Property Type</th>
                         <th>Street</th>
-                        <th>Block Size</th>
+                        <th>Suburb</th>
+                        <th>Postcode</th>
+                        <th>Block Size (sqm)</th>
+                        <th>Property Type</th>
+                        <th>Settlement Date</th>
+                        <th>Price</th>
                     </tr>
                     {% for property in properties %}
                     <tr>
-                        <td>{{ property.Postcode }}</td>
-                        <td>{{ property.Price | currency }}</td>
-                        <td>{{ property["Settlement Date"] }}</td>
-                        <td>{{ property.Suburb }}</td>
-                        <td>{{ property["Property Type"] }}</td>
                         <td>{{ property.Street }}</td>
+                        <td>{{ property.Suburb }}</td>
+                        <td>{{ property.Postcode }}</td>
                         <td>{{ property["Block Size"] }}</td>
+                        <td>{{ property["Property Type"] }}</td>
+                        <td>{{ property["Settlement Date"] }}</td>
+                        <td>{{ property.Price | currency }}</td>
                     </tr>
                     {% endfor %}
                 </table>

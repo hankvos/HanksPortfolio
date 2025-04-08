@@ -16,7 +16,7 @@ import numpy as np
 from scipy import stats
 from flask import Flask, render_template, request, jsonify, send_from_directory
 import folium
-from folium.plugins import HeatMap, MarkerCluster
+from folium.plugins import MarkerCluster
 
 app = Flask(__name__)
 
@@ -163,7 +163,7 @@ def load_property_data():
                                             temp_df = temp_df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"]]
                                             temp_df["Postcode"] = temp_df["Postcode"].astype(str)
                                             temp_df["Price"] = pd.to_numeric(temp_df["Price"], errors='coerce', downcast='float')
-                                            temp_df["Block Size"] = pd.to_numeric(temp_df["Block Size"], errors='coerce', downcast='float')
+                                            temp_df["Block Size"] = pd.to_numeric(temp_df["Block Size"], errors='coerce', downcast='float').round(0)  # Round to 0 decimal places
                                             temp_df["Settlement Date"] = pd.to_datetime(temp_df["Settlement Date"], format='%Y%m%d', errors='coerce')
                                             temp_df = temp_df[temp_df["Settlement Date"].dt.year >= 2024]
                                             temp_df["Settlement Date"] = temp_df["Settlement Date"].dt.strftime('%d/%m/%Y')
@@ -199,7 +199,7 @@ def generate_heatmap():
     df = load_property_data()
     m = folium.Map(location=[-32.5, 152.5], zoom_start=8)
     coords = df[df["Price"] < 9_000_000].dropna(subset=["Price"])
-    marker_cluster = MarkerCluster().add_to(m)  # Add marker clustering
+    marker_cluster = MarkerCluster().add_to(m)
     for _, row in coords.iterrows():
         lat = SUBURB_COORDS.get(row["Postcode"], {}).get(row["Suburb"], POSTCODE_COORDS.get(row["Postcode"], REGION_CENTERS.get(next(iter(REGION_POSTCODE_LIST)), [-32.5, 152.5])))[0]
         lon = SUBURB_COORDS.get(row["Postcode"], {}).get(row["Suburb"], POSTCODE_COORDS.get(row["Postcode"], REGION_CENTERS.get(next(iter(REGION_POSTCODE_LIST)), [-32.5, 152.5])))[1]
@@ -214,18 +214,15 @@ def generate_heatmap():
 def generate_region_median_chart(selected_region=None, selected_postcode=None):
     df = load_property_data()
     if selected_postcode:
-        # Show median prices by suburb for the selected postcode
         median_data = df[df["Postcode"] == selected_postcode].groupby('Suburb')['Price'].median().sort_values()
         title = f"Median House Prices by Suburb (Postcode {selected_postcode})"
         x_label = "Suburb"
     elif selected_region:
-        # Show median prices by postcode for the selected region
         postcodes = REGION_POSTCODE_LIST.get(selected_region, [])
         median_data = df[df["Postcode"].isin(postcodes)].groupby('Postcode')['Price'].median().sort_values()
         title = f"Median House Prices by Postcode ({selected_region})"
         x_label = "Postcode"
     else:
-        # Default: Show median prices by region
         region_medians = df.groupby('Postcode')['Price'].median().reset_index()
         postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
         region_medians['Region'] = region_medians['Postcode'].map(postcode_to_region)
@@ -233,7 +230,7 @@ def generate_region_median_chart(selected_region=None, selected_postcode=None):
         title = "Median House Prices by Region"
         x_label = "Region"
     
-    plt.figure(figsize=(12, 6))  # Increased width for better fit
+    plt.figure(figsize=(12, 6))
     median_data.plot(kind='bar', color='skyblue')
     plt.title(title)
     plt.ylabel('Median Price ($)')
@@ -250,7 +247,7 @@ def generate_region_median_chart(selected_region=None, selected_postcode=None):
 def pre_generate_charts():
     logger.info("Pre-generating charts...")
     heatmap_path = generate_heatmap()
-    region_median_chart_path = generate_region_median_chart()  # Default chart
+    region_median_chart_path = generate_region_median_chart()
     logger.info(f"Generated heatmap at {heatmap_path}")
     logger.info(f"Generated region median chart at {region_median_chart_path}")
 
@@ -288,10 +285,8 @@ def index():
         sort_by = request.form.get("sort_by", "Settlement Date")
         filtered_df = df.copy()
         
-        # Generate chart based on selection
         chart_path = generate_region_median_chart(selected_region, selected_postcode)
         
-        # Only apply filters and populate properties if a filter is selected
         properties = []
         avg_price = 0
         stats = {"mean": 0, "median": 0, "std": 0}
@@ -354,7 +349,7 @@ def hot_suburbs():
         suburb_medians = df.groupby(['Suburb', 'Postcode'])['Price'].median().reset_index()
         postcode_to_region = {pc: region for region, postcodes in REGION_POSTCODE_LIST.items() for pc in postcodes}
         suburb_medians['Region'] = suburb_medians['Postcode'].map(postcode_to_region)
-        hot_suburbs_df = suburb_medians[suburb_medians['Price'] < NATIONAL_MEDIAN]
+        hot_suburbs_df = suburb_medians[suburb_medians['Price'] < NATIONAL_MEDIAN].sort_values(by='Price')  # Sort by median price
         hot_suburbs = [
             {
                 'suburb': row['Suburb'],
@@ -414,7 +409,6 @@ def static_files(filename):
         logger.error(f"Error serving static file {filename}: {e}", exc_info=True)
         return "Static file not found", 404
 
-# Load data and pre-generate charts before Gunicorn starts
 logger.info("Starting synchronous data load before Gunicorn...")
 load_property_data()
 logger.info("Synchronous data load completed.")
