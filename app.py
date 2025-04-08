@@ -168,7 +168,7 @@ def load_property_data():
                                             temp_df = temp_df[temp_df["Settlement Date"].dt.year >= 2024]
                                             temp_df["Settlement Date"] = temp_df["Settlement Date"].dt.strftime('%d/%m/%Y')
                                             temp_df = temp_df[temp_df["Postcode"].isin(ALLOWED_POSTCODES)]
-                                            temp_df = temp_df[temp_df["Price"] >= 10000]  # Filter implausible prices
+                                            temp_df = temp_df[temp_df["Price"] >= 10000]
                                             if not temp_df.empty and not temp_df.isna().all().all():
                                                 result_df = pd.concat([result_df, temp_df], ignore_index=True)
                                 except Exception as e:
@@ -181,7 +181,6 @@ def load_property_data():
     if result_df.empty:
         logger.error("No valid DAT files processed or no data matches filters.")
     else:
-        # Calculate national median from all sales in the regions
         NATIONAL_MEDIAN = result_df["Price"].median()
         logger.info(f"National median price calculated: ${NATIONAL_MEDIAN:,.0f}")
         johns_river_sales = result_df[result_df["Suburb"] == "JOHNS RIVER"][["Price", "Settlement Date", "Street"]].to_dict('records')
@@ -213,10 +212,32 @@ def generate_heatmap():
     m.save(heatmap_path)
     return heatmap_path
 
+def generate_region_median_chart():
+    df = load_property_data()
+    region_medians = df.groupby('Postcode')['Price'].median().reset_index()
+    postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
+    region_medians['Region'] = region_medians['Postcode'].map(postcode_to_region)
+    region_medians = region_medians.groupby('Region')['Price'].median().sort_values()
+    
+    plt.figure(figsize=(10, 6))
+    region_medians.plot(kind='barh', color='skyblue')
+    plt.title('Median House Prices by Region')
+    plt.xlabel('Median Price ($)')
+    plt.ylabel('Region')
+    for i, v in enumerate(region_medians):
+        plt.text(v, i, f"${v:,.0f}", va='center')
+    plt.tight_layout()
+    chart_path = "static/region_median_chart.png"
+    plt.savefig(chart_path)
+    plt.close()
+    return chart_path
+
 def pre_generate_charts():
     logger.info("Pre-generating charts...")
     heatmap_path = generate_heatmap()
+    region_median_chart_path = generate_region_median_chart()
     logger.info(f"Generated heatmap at {heatmap_path}")
+    logger.info(f"Generated region median chart at {region_median_chart_path}")
 
 @app.route('/health')
 def health_check():
@@ -230,6 +251,7 @@ def health_check():
 
 @app.route('/', methods=["GET", "POST"])
 def index():
+    global NATIONAL_MEDIAN
     start_time = time.time()
     logger.info("Starting index route")
     log_memory_usage()
@@ -262,14 +284,7 @@ def index():
         avg_price = filtered_df["Price"].mean() if not filtered_df.empty else 0
         stats = {"mean": filtered_df["Price"].mean(), "median": filtered_df["Price"].median(), "std": filtered_df["Price"].std()} if not filtered_df.empty else {"mean": 0, "median": 0, "std": 0}
         heatmap_path = "static/heatmap.html" if os.path.exists("static/heatmap.html") else None
-        region_median_chart_path = None
-        postcode_median_chart_path = None
-        suburb_median_chart_path = None
-        median_chart_path = None
-        price_hist_path = None
-        region_timeline_path = None
-        postcode_timeline_path = None
-        suburb_timeline_path = None
+        region_median_chart_path = "static/region_median_chart.png" if os.path.exists("static/region_median_chart.png") else None
         
         logger.info("Rendering index.html")
         response = render_template("index.html",
@@ -285,16 +300,10 @@ def index():
                                   sort_by=sort_by,
                                   heatmap_path=heatmap_path,
                                   region_median_chart_path=region_median_chart_path,
-                                  postcode_median_chart_path=postcode_median_chart_path,
-                                  suburb_median_chart_path=suburb_median_chart_path,
-                                  median_chart_path=median_chart_path,
-                                  price_hist_path=price_hist_path,
-                                  region_timeline_path=region_timeline_path,
-                                  postcode_timeline_path=postcode_timeline_path,
-                                  suburb_timeline_path=suburb_timeline_path,
                                   properties=properties,
                                   avg_price=avg_price,
-                                  stats=stats)
+                                  stats=stats,
+                                  national_median=NATIONAL_MEDIAN)
         elapsed_time = time.time() - start_time
         logger.info(f"Index route completed in {elapsed_time:.2f} seconds")
         log_memory_usage()

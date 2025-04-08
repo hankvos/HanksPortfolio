@@ -20,7 +20,14 @@
                 </tr>
                 {% for suburb in hot_suburbs %}
                 <tr>
-                    <td>{{ suburb.suburb }}</td>
+                    <td>
+                        <form method="POST" action="/" style="margin: 0;">
+                            <input type="hidden" name="suburb" value="{{ suburb.suburb }}">
+                            <input type="hidden" name="postcode" value="{{ suburb.postcode }}">
+                            <input type="hidden" name="region" value="{{ suburb.region }}">
+                            <button type="submit" style="background: none; border: none; padding: 0; color: blue; text-decoration: underline; cursor: pointer;">{{ suburb.suburb }}</button>
+                        </form>
+                    </td>
                     <td>{{ suburb.postcode }}</td>
                     <td>{{ suburb.region }}</td>
                     <td>${{ "{:,.0f}".format(suburb.median_price) }}</td>

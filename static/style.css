@@ -53,9 +53,8 @@ select, button {
 }
 
 button {
-    background: #4682B4;
-    color: white;
-    border: none;
+    font-family: inherit;
+    font-size: inherit;
 }
 
 .button {
