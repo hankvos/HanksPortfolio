@@ -16,7 +16,7 @@ import numpy as np
 from scipy import stats
 from flask import Flask, render_template, request, jsonify, send_from_directory
 import folium
-from folium.plugins import MarkerCluster
+from folium.plugins import MarkerCluster, HeatMap
 
 app = Flask(__name__)
 
@@ -194,16 +194,26 @@ def load_property_data():
 
 def generate_heatmap():
     df = load_property_data()
-    m = folium.Map(location=[-32.5, 152.5], zoom_start=8)
+    m = folium.Map(zoom_start=6)
     coords = df[df["Price"] < 9_000_000].dropna(subset=["Price"])
-    marker_cluster = MarkerCluster().add_to(m)
+    all_coords = []
+    
     for _, row in coords.iterrows():
-        lat = SUBURB_COORDS.get(row["Postcode"], {}).get(row["Suburb"], POSTCODE_COORDS.get(row["Postcode"], REGION_CENTERS.get(next(iter(REGION_POSTCODE_LIST)), [-32.5, 152.5])))[0]
-        lon = SUBURB_COORDS.get(row["Postcode"], {}).get(row["Suburb"], POSTCODE_COORDS.get(row["Postcode"], REGION_CENTERS.get(next(iter(REGION_POSTCODE_LIST)), [-32.5, 152.5])))[1]
-        folium.Marker(
-            location=[lat, lon],
-            popup=f"{row['Suburb']} ({row['Postcode']}): ${row['Price']:,.0f}",
-        ).add_to(marker_cluster)
+        latlon = SUBURB_COORDS.get(row["Postcode"], {}).get(row["Suburb"])
+        if not latlon:
+            latlon = POSTCODE_COORDS.get(row["Postcode"])
+        if not latlon:
+            region = next((r for r, pcs in REGION_POSTCODE_LIST.items() if row["Postcode"] in pcs), None)
+            latlon = REGION_CENTERS.get(region) if region else [-32.5, 152.5]
+        all_coords.append([latlon[0], latlon[1], row["Price"]])
+    
+    HeatMap(all_coords, radius=10).add_to(m)
+    
+    if all_coords:
+        lats = [c[0] for c in all_coords]
+        lons = [c[1] for c in all_coords]
+        m.fit_bounds([[min(lats), min(lons)], [max(lats), max(lons)]])
+    
     heatmap_path = "static/heatmap.html"
     m.save(heatmap_path)
     return heatmap_path
@@ -242,11 +252,13 @@ def generate_region_median_chart(selected_region=None, selected_postcode=None):
     return chart_path
 
 def pre_generate_charts():
-    logger.info("Pre-generating charts...")
-    heatmap_path = generate_heatmap()
-    region_median_chart_path = generate_region_median_chart()
-    logger.info(f"Generated heatmap at {heatmap_path}")
-    logger.info(f"Generated region median chart at {region_median_chart_path}")
+    logger.info("Pre-generating charts in background...")
+    if not os.path.exists("static/heatmap.html"):
+        heatmap_path = generate_heatmap()
+        logger.info(f"Generated heatmap at {heatmap_path}")
+    if not os.path.exists("static/region_median_chart.png"):
+        region_median_chart_path = generate_region_median_chart()
+        logger.info(f"Generated region median chart at {region_median_chart_path}")
 
 @app.route('/health')
 def health_check():
@@ -275,39 +287,44 @@ def index():
         logger.info(f"DataFrame loaded with {len(df)} rows")
         unique_postcodes = sorted(df["Postcode"].unique())
         unique_suburbs = sorted(df["Suburb"].unique())
+        
+        # Get form data with defaults
         selected_region = request.form.get("region", "")
         selected_postcode = request.form.get("postcode", "")
         selected_suburb = request.form.get("suburb", "")
         selected_property_type = request.form.get("property_type", "HOUSE")
         sort_by = request.form.get("sort_by", "Street")
         
-        # Reset postcode and suburb when "All Regions" is selected
-        if not selected_region:
-            selected_postcode = ""
-            selected_suburb = ""
+        # Log form data for debugging
+        logger.info(f"Form data: region={selected_region}, postcode={selected_postcode}, suburb={selected_suburb}, property_type={selected_property_type}, sort_by={sort_by}")
         
         chart_path = generate_region_median_chart(selected_region, selected_postcode)
         
-        properties = []
-        avg_price = 0
-        stats = {"mean": 0, "median": 0, "std": 0}
-        if selected_region or selected_postcode or selected_suburb or selected_property_type != "HOUSE":
-            filtered_df = df.copy()
-            if selected_region:
-                filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
-            if selected_postcode:
-                filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
-            if selected_suburb:
-                filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
-            if selected_property_type != "ALL":
-                filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
-            # Sort by StreetOnly if sort_by is "Street"
+        # Filter properties based on selections
+        filtered_df = df.copy()
+        if selected_region:
+            filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
+        if selected_postcode:
+            filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
+        if selected_suburb:
+            filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
+        if selected_property_type != "ALL":
+            filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
+        
+        # Sort and convert to list
+        if not filtered_df.empty:
             if sort_by == "Street":
                 properties = filtered_df.sort_values(by="StreetOnly").to_dict('records')
             else:
                 properties = filtered_df.sort_values(by=sort_by).to_dict('records')
-            avg_price = filtered_df["Price"].mean() if not filtered_df.empty else 0
-            stats = {"mean": filtered_df["Price"].mean(), "median": filtered_df["Price"].median(), "std": filtered_df["Price"].std()} if not filtered_df.empty else {"mean": 0, "median": 0, "std": 0}
+            avg_price = filtered_df["Price"].mean()
+            stats = {"mean": filtered_df["Price"].mean(), "median": filtered_df["Price"].median(), "std": filtered_df["Price"].std()}
+        else:
+            properties = []
+            avg_price = 0
+            stats = {"mean": 0, "median": 0, "std": 0}
+        
+        logger.info(f"Filtered properties: {len(properties)} records")
         
         heatmap_path = "static/heatmap.html" if os.path.exists("static/heatmap.html") else None
         region_median_chart_path = "static/region_median_chart.png" if os.path.exists("static/region_median_chart.png") else None
@@ -357,7 +374,7 @@ def hot_suburbs():
         suburb_medians['Region'] = suburb_medians['Postcode'].map(postcode_to_region)
         hot_suburbs_df = suburb_medians[suburb_medians['Price'] < NATIONAL_MEDIAN]
         
-        sort_by = request.form.get("sort_by", "Suburb")  # Default to Suburb
+        sort_by = request.form.get("sort_by", "Suburb")
         if sort_by == "Suburb":
             hot_suburbs_df = hot_suburbs_df.sort_values(by='Suburb')
         elif sort_by == "Postcode":
@@ -441,4 +458,4 @@ else:
     app.logger.setLevel(gunicorn_logger.level)
     port = int(os.environ.get("PORT", 10000))
     logger.info(f"Starting gunicorn on port {port} with 1 worker")
-    os.environ["GUNICORN_CMD_ARGS"] = f"--bind 0.0.0.0:{port} --workers 1"
+    os.environ["GUNICORN_CMD_ARGS"] = f"--bind 0.0.0.0:{port} --workers 1 --timeout 120"
