@@ -9,6 +9,7 @@ from functools import lru_cache
 import sys
 import time
 import threading
+import psutil  # New import for memory monitoring
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -20,7 +21,7 @@ from folium.plugins import HeatMap
 
 app = Flask(__name__)
 
-# Configure logging with dynamic level from environment variable
+# Configure logging
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
     level=getattr(logging, log_level, logging.INFO),
@@ -28,8 +29,6 @@ logging.basicConfig(
     format='%(levelname)s:%(name)s:%(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# Suppress Matplotlib font debug messages
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
 # Region and postcode mappings
@@ -84,12 +83,18 @@ SUBURB_COORDS = {
 df = None
 initial_load_complete = False
 data_loading_lock = threading.Lock()
+charts_pre_generated = False
 
 @app.template_filter('currency')
 def currency_filter(value):
     if value is None or pd.isna(value):
         return "N/A"
     return "${:,.0f}".format(value)
+
+def log_memory_usage():
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    logger.info(f"Memory usage: RSS={mem_info.rss / 1024**2:.2f} MB, VMS={mem_info.vms / 1024**2:.2f} MB")
 
 def load_property_data():
     global df, initial_load_complete
@@ -100,6 +105,7 @@ def load_property_data():
         
         start_time = time.time()
         logger.info("Loading property data...")
+        log_memory_usage()
         zip_files = [f for f in os.listdir() if f.endswith('.zip')]
         if not zip_files:
             logger.error("No ZIP files found in the directory.")
@@ -190,6 +196,7 @@ def load_property_data():
         df = result_df
         initial_load_complete = True
         logger.info("Data load completed successfully")
+        log_memory_usage()
         return df
 
 def generate_region_median_chart():
@@ -489,16 +496,20 @@ def pre_generate_charts():
         for region in REGION_POSTCODE_LIST.keys():
             generate_postcode_median_chart(region=region)
         logger.info("Pre-generation of default charts completed.")
+        log_memory_usage()
     except Exception as e:
         logger.error(f"Error in pre_generate_charts: {e}", exc_info=True)
 
 def pre_generate_charts_async():
-    logger.info("Starting async pre-generation of default charts...")
-    try:
-        pre_generate_charts()
-        logger.info("Async pre-generation completed.")
-    except Exception as e:
-        logger.error(f"Error in pre_generate_charts_async: {e}", exc_info=True)
+    global charts_pre_generated
+    if not charts_pre_generated:
+        logger.info("Starting async pre-generation of default charts...")
+        try:
+            pre_generate_charts()
+            charts_pre_generated = True
+            logger.info("Async pre-generation completed.")
+        except Exception as e:
+            logger.error(f"Error in pre_generate_charts_async: {e}", exc_info=True)
 
 def load_data_async():
     logger.info("Starting async data load...")
@@ -515,6 +526,7 @@ def health_check():
 
 @app.route('/', methods=["GET", "POST"])
 def index():
+    global charts_pre_generated
     start_time = time.time()
     logger.info("Starting index route")
     
@@ -526,7 +538,13 @@ def index():
         logger.info("Data loaded, proceeding with index route")
         df = load_property_data()
         logger.info(f"DataFrame loaded successfully with {len(df)} rows")
+        log_memory_usage()
         
+        # Trigger chart pre-generation after first successful load if not done
+        if not charts_pre_generated and os.environ.get("RENDER"):
+            logger.info("Triggering chart pre-generation in background")
+            threading.Thread(target=pre_generate_charts_async, daemon=True).start()
+
         selected_region = request.form.get("region", None) if request.method == "POST" else None
         selected_postcode = request.form.get("postcode", None) if request.method == "POST" else None
         selected_suburb = request.form.get("suburb", None) if request.method == "POST" else None
@@ -648,6 +666,7 @@ def index():
                                   data_source="NSW Valuer General Data")
         elapsed_time = time.time() - start_time
         logger.info(f"Index route completed in {elapsed_time:.2f} seconds")
+        log_memory_usage()
         return response
     except Exception as e:
         logger.error(f"Error in index route: {e}", exc_info=True)
@@ -730,7 +749,7 @@ def static_files(filename):
 
 if os.environ.get("RENDER"):
     threading.Thread(target=load_data_async, daemon=True).start()
-    threading.Thread(target=pre_generate_charts_async, daemon=True).start()
+    # Chart pre-generation moved to first index() call
 else:
     load_property_data()
     pre_generate_charts()
