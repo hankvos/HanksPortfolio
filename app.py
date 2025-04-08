@@ -9,6 +9,7 @@ from functools import lru_cache
 import sys
 import time
 import psutil
+import threading
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -16,7 +17,7 @@ import numpy as np
 from scipy import stats
 from flask import Flask, render_template, request, jsonify, send_from_directory
 import folium
-from folium.plugins import MarkerCluster, HeatMap
+from folium.plugins import MarkerCluster
 
 app = Flask(__name__)
 
@@ -25,10 +26,9 @@ logger = logging.getLogger(__name__)
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(logging.Formatter('%(levelname)s:%(name)s:%(message)s'))
 logger.handlers = [handler]
-logger.setLevel(logging.DEBUG)
-logging.getLogger('matplotlib').setLevel(logging.WARNING)
+logger.setLevel(logging.INFO)  # Reduce verbosity from DEBUG to INFO
 
-# Region and postcode mappings
+# Region and postcode mappings (unchanged)
 REGION_POSTCODE_LIST = {
     "Central Coast": ["2083", "2250", "2251", "2256", "2257", "2258", "2259", "2260", "2261", "2262", "2263", "2775"],
     "Coffs Harbour - Grafton": ["2370", "2441", "2448", "2449", "2450", "2452", "2453", "2454", "2455", "2456", "2460", "2462", "2463", "2464", "2465", "2466", "2469"],
@@ -81,6 +81,7 @@ df = None
 data_loaded = False
 last_health_status = None
 NATIONAL_MEDIAN = None
+startup_complete = False
 
 @app.template_filter('currency')
 def currency_filter(value):
@@ -96,7 +97,6 @@ def log_memory_usage():
 def load_property_data():
     global df, data_loaded, NATIONAL_MEDIAN
     if data_loaded:
-        logger.debug("Data Loaded, returning cached DataFrame")
         return df
     
     start_time = time.time()
@@ -187,7 +187,6 @@ def load_property_data():
 
     df = result_df
     data_loaded = True
-    logger.info("Set data_loaded (data loaded)")
     logger.info("Data load completed successfully")
     log_memory_usage()
     return df
@@ -195,7 +194,8 @@ def load_property_data():
 def generate_heatmap():
     df = load_property_data()
     m = folium.Map(zoom_start=6)
-    coords = df[df["Price"] < 9_000_000].dropna(subset=["Price"])
+    marker_cluster = MarkerCluster().add_to(m)
+    coords = df[df["Price"] < 9_000_000].dropna(subset=["Price"]).sample(min(1000, len(df)))  # Sample 1000 markers
     all_coords = []
     
     for _, row in coords.iterrows():
@@ -205,9 +205,11 @@ def generate_heatmap():
         if not latlon:
             region = next((r for r, pcs in REGION_POSTCODE_LIST.items() if row["Postcode"] in pcs), None)
             latlon = REGION_CENTERS.get(region) if region else [-32.5, 152.5]
-        all_coords.append([latlon[0], latlon[1], row["Price"]])
-    
-    HeatMap(all_coords, radius=10).add_to(m)
+        folium.Marker(
+            location=latlon,
+            popup=f"{row['Street']}, {row['Suburb']} {row['Postcode']} - ${row['Price']:,.0f}"
+        ).add_to(marker_cluster)
+        all_coords.append(latlon)
     
     if all_coords:
         lats = [c[0] for c in all_coords]
@@ -260,11 +262,17 @@ def pre_generate_charts():
         region_median_chart_path = generate_region_median_chart()
         logger.info(f"Generated region median chart at {region_median_chart_path}")
 
+def startup_tasks():
+    global startup_complete
+    load_property_data()
+    pre_generate_charts()
+    startup_complete = True
+    logger.info("Startup tasks completed")
+
 @app.route('/health')
 def health_check():
     global last_health_status
-    status = "OK" if data_loaded else "LOADING"
-    logger.debug(f"Health check: data_loaded={data_loaded}, returning '{status}'")
+    status = "OK" if startup_complete else "LOADING"
     if status != last_health_status:
         logger.info(f"Health status changed to: {status}")
         last_health_status = status
@@ -281,54 +289,45 @@ def index():
         logger.info("Data not yet loaded, showing loading page")
         return render_template("loading.html")
     
-    logger.info("Data loaded, proceeding with index route")
     try:
         df = load_property_data()
         logger.info(f"DataFrame loaded with {len(df)} rows")
         unique_postcodes = sorted(df["Postcode"].unique())
         unique_suburbs = sorted(df["Suburb"].unique())
         
-        # Get form data with defaults
         selected_region = request.form.get("region", "")
         selected_postcode = request.form.get("postcode", "")
         selected_suburb = request.form.get("suburb", "")
         selected_property_type = request.form.get("property_type", "HOUSE")
         sort_by = request.form.get("sort_by", "Street")
         
-        # Log form data for debugging
         logger.info(f"Form data: region={selected_region}, postcode={selected_postcode}, suburb={selected_suburb}, property_type={selected_property_type}, sort_by={sort_by}")
         
-        # Reset postcode and suburb for display if region is "All Regions"
         display_postcode = selected_postcode if selected_region else ""
         display_suburb = selected_suburb if selected_region and selected_postcode else ""
         
         chart_path = generate_region_median_chart(selected_region, selected_postcode)
         
-        # Filter properties based on selections
         filtered_df = df.copy()
-        if selected_region:
+        properties = []
+        median_price = 0
+        
+        if selected_region and not selected_postcode and not selected_suburb:
             filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
-        if selected_postcode:
+        elif selected_postcode and not selected_suburb:
             filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
-        if selected_suburb:
+        elif selected_suburb:
             filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
+        
         if selected_property_type != "ALL":
             filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
         
-        # Sort and convert to list
         if not filtered_df.empty:
             if sort_by == "Street":
                 properties = filtered_df.sort_values(by="StreetOnly").to_dict('records')
             else:
                 properties = filtered_df.sort_values(by=sort_by).to_dict('records')
-            avg_price = filtered_df["Price"].mean()
             median_price = filtered_df["Price"].median()
-            stats = {"mean": avg_price, "median": median_price, "std": filtered_df["Price"].std()}
-        else:
-            properties = []
-            avg_price = 0
-            median_price = 0
-            stats = {"mean": 0, "median": 0, "std": 0}
         
         logger.info(f"Filtered properties: {len(properties)} records")
         
@@ -350,9 +349,7 @@ def index():
                                   heatmap_path=heatmap_path,
                                   region_median_chart_path=region_median_chart_path,
                                   properties=properties,
-                                  avg_price=avg_price,
                                   median_price=median_price,
-                                  stats=stats,
                                   national_median=NATIONAL_MEDIAN,
                                   display_suburb=selected_suburb if selected_suburb else None)
         elapsed_time = time.time() - start_time
@@ -374,7 +371,6 @@ def hot_suburbs():
         logger.info("Data not yet loaded, showing loading page")
         return render_template("loading.html")
     
-    logger.info("Data loaded, proceeding with hot_suburbs route")
     try:
         df = load_property_data()
         suburb_medians = df.groupby(['Suburb', 'Postcode'])['Price'].median().reset_index()
@@ -452,10 +448,9 @@ def static_files(filename):
         logger.error(f"Error serving static file {filename}: {e}", exc_info=True)
         return "Static file not found", 404
 
-logger.info("Starting synchronous data load before Gunicorn...")
-load_property_data()
-logger.info("Synchronous data load completed.")
-pre_generate_charts()
+# Start background loading
+logger.info("Starting background data load...")
+threading.Thread(target=startup_tasks, daemon=True).start()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
