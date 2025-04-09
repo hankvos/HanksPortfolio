@@ -16,7 +16,7 @@
                 <option value="Suburb" {% if sort_by == "Suburb" %}selected{% endif %}>Suburb</option>
                 <option value="Postcode" {% if sort_by == "Postcode" %}selected{% endif %}>Postcode</option>
                 <option value="Region" {% if sort_by == "Region" %}selected{% endif %}>Region</option>
-                <option value="Median Price" {% if sort_by == "Median Price" %}selected{% endif %}>Median Price</option>
+                <option value="Median Price (House)" {% if sort_by == "Median Price (House)" %}selected{% endif %}>Median Price (House)</option>
             </select>
         </form>
         <table class="hot-suburbs-table">
@@ -24,7 +24,7 @@
                 <th {% if sort_by == "Suburb" %}class="sorted"{% endif %}>Suburb</th>
                 <th {% if sort_by == "Postcode" %}class="sorted"{% endif %}>Postcode</th>
                 <th {% if sort_by == "Region" %}class="sorted"{% endif %}>Region</th>
-                <th {% if sort_by == "Median Price" %}class="sorted"{% endif %}>Median Price</th>
+                <th {% if sort_by == "Median Price (House)" %}class="sorted"{% endif %}>Median Price (House)</th>
             </tr>
             {% for suburb in hot_suburbs %}
             <tr>

@@ -458,22 +458,24 @@ def hot_suburbs():
                                  hot_suburbs=[],
                                  total_suburbs=0,
                                  national_median=NATIONAL_MEDIAN,
-                                 sort_by="Median Price")
+                                 sort_by="Median Price (House)")
         
-        suburb_medians = df_local.groupby(["Suburb", "Postcode"])["Price"].median().reset_index()
+        # Filter for HOUSE only before calculating median
+        house_df = df_local[df_local["Property Type"] == "HOUSE"]
+        suburb_medians = house_df.groupby(["Suburb", "Postcode"])["Price"].median().reset_index()
         hot_suburbs_df = suburb_medians[suburb_medians["Price"] < NATIONAL_MEDIAN].copy()
         postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
         hot_suburbs_df["Region"] = hot_suburbs_df["Postcode"].map(postcode_to_region).fillna("Unknown")
-        total_suburbs = len(suburb_medians)
+        total_suburbs = len(house_df.groupby(["Suburb", "Postcode"]))  # Total unique suburb-postcode pairs for HOUSE
         
-        sort_by = request.form.get("sort_by", "Median Price")
+        sort_by = request.form.get("sort_by", "Median Price (House)")
         if sort_by == "Suburb":
             hot_suburbs_df = hot_suburbs_df.sort_values("Suburb")
         elif sort_by == "Postcode":
             hot_suburbs_df = hot_suburbs_df.sort_values("Postcode")
         elif sort_by == "Region":
             hot_suburbs_df = hot_suburbs_df.sort_values("Region")
-        else:  # Median Price
+        else:  # Median Price (House)
             hot_suburbs_df = hot_suburbs_df.sort_values("Price", ascending=True)
         
         hot_suburbs = [
@@ -486,7 +488,7 @@ def hot_suburbs():
             for _, row in hot_suburbs_df.iterrows()
         ]
         
-        logger.info(f"HOT SUBURBS: Found {len(hot_suburbs)} suburbs below national median")
+        logger.info(f"HOT SUBURBS: Found {len(hot_suburbs)} suburbs below national median for HOUSE")
         sys.stdout.flush()
         
         return render_template("hot_suburbs.html",
