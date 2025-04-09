@@ -282,25 +282,35 @@ def timeout_handler(func):
 @timeout_handler
 def index():
     global NATIONAL_MEDIAN
-    logger.info("Starting index route")
-    log_memory_usage()
+    logger.info("Entering index route")
     sys.stdout.flush()
     
+    logger.info(f"Startup complete: {is_startup_complete()}")
+    sys.stdout.flush()
     if not is_startup_complete():
         logger.info("Data not yet loaded, showing loading page")
+        sys.stdout.flush()
         return render_template("loading.html")
     
     try:
+        logger.info("Acquiring lock and copying DataFrame")
+        sys.stdout.flush()
         with lock:
             if df is None:
                 logger.error("DataFrame is None after startup")
+                sys.stdout.flush()
                 raise ValueError("DataFrame not initialized")
             df_local = df.copy()
-        logger.info(f"DataFrame loaded with {len(df_local)} rows")
+        logger.info(f"DataFrame copied with {len(df_local)} rows")
+        sys.stdout.flush()
         
+        logger.info("Fetching unique postcodes and suburbs")
+        sys.stdout.flush()
         unique_postcodes = sorted(df_local["Postcode"].unique())
         unique_suburbs = sorted(df_local["Suburb"].unique())
         
+        logger.info("Processing form data")
+        sys.stdout.flush()
         selected_region = request.form.get("region", "")
         selected_postcode = request.form.get("postcode", "")
         selected_suburb = request.form.get("suburb", "")
@@ -308,13 +318,17 @@ def index():
         sort_by = request.form.get("sort_by", "Street")
         
         logger.info(f"Form data: region={selected_region}, postcode={selected_postcode}, suburb={selected_suburb}, property_type={selected_property_type}, sort_by={sort_by}")
+        sys.stdout.flush()
         
         display_postcode = selected_postcode if selected_region else ""
         display_suburb = selected_suburb if selected_region and selected_postcode else ""
         
-        logger.info("Generating chart...")
+        logger.info("Generating chart")
+        sys.stdout.flush()
         chart_path = generate_region_median_chart(selected_region, selected_postcode)
         
+        logger.info("Filtering DataFrame")
+        sys.stdout.flush()
         filtered_df = df_local.copy()
         properties = []
         median_price = 0
@@ -337,11 +351,17 @@ def index():
             median_price = filtered_df["Price"].median()
         
         logger.info(f"Filtered properties: {len(properties)} records")
+        sys.stdout.flush()
         
+        logger.info("Checking static files")
+        sys.stdout.flush()
         heatmap_path = "static/heatmap.html" if os.path.exists("static/heatmap.html") else None
         region_median_chart_path = "static/region_median_chart.png" if os.path.exists("static/region_median_chart.png") else None
+        logger.info(f"Heatmap path: {heatmap_path}, Chart path: {region_median_chart_path}")
+        sys.stdout.flush()
         
         logger.info("Rendering index.html")
+        sys.stdout.flush()
         response = render_template("index.html",
                                   data_source="NSW Valuer General Data",
                                   regions=sorted(REGION_POSTCODE_LIST.keys()),
@@ -360,8 +380,8 @@ def index():
                                   national_median=NATIONAL_MEDIAN,
                                   display_suburb=selected_suburb if selected_suburb else None)
         logger.info("Index route rendering complete")
-        log_memory_usage()
         sys.stdout.flush()
+        log_memory_usage()
         return response
     except Exception as e:
         logger.error(f"Error in index route: {str(e)}", exc_info=True)
