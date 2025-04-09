@@ -8,7 +8,7 @@ import sys
 import time
 import psutil
 import threading
-import urllib.parse  # Added for URL encoding
+import urllib.parse
 
 import pandas as pd
 import matplotlib
@@ -341,15 +341,24 @@ def index():
         logger.info(f"DATAFRAME: Copied {len(df_local)} rows")
         sys.stdout.flush()
         
+        # Handle both POST (form) and GET (URL) requests
+        if request.method == "POST":
+            selected_region = request.form.get("region", "")
+            selected_postcode = request.form.get("postcode", "")
+            selected_suburb = request.form.get("suburb", "")
+            selected_property_type = request.form.get("property_type", "HOUSE")
+            sort_by = request.form.get("sort_by", "Street")
+        else:  # GET request, e.g., from hot_suburbs link
+            selected_region = request.args.get("region", "")
+            selected_postcode = request.args.get("postcode", "")
+            selected_suburb = request.args.get("suburb", "")
+            selected_property_type = request.args.get("property_type", "HOUSE")
+            sort_by = request.args.get("sort_by", "Street")
+        
         unique_postcodes = sorted(df_local["Postcode"].unique()) if not df_local.empty else []
         unique_suburbs = sorted(df_local["Suburb"].unique()) if not df_local.empty else []
         
-        selected_region = request.form.get("region", "")
-        selected_postcode = request.form.get("postcode", "")
-        selected_suburb = request.form.get("suburb", "")
-        selected_property_type = request.form.get("property_type", "HOUSE")
-        sort_by = request.form.get("sort_by", "Street")
-        
+        # Filter postcodes and suburbs for dropdowns based on selections
         if selected_region:
             unique_postcodes = [pc for pc in unique_postcodes if pc in REGION_POSTCODE_LIST.get(selected_region, [])]
         if selected_postcode:
@@ -358,7 +367,7 @@ def index():
             postcodes = REGION_POSTCODE_LIST.get(selected_region, [])
             unique_suburbs = sorted(df_local[df_local["Postcode"].isin(postcodes)]["Suburb"].unique())
         
-        logger.info(f"FORM: region={selected_region}, postcode={selected_postcode}, suburb={selected_suburb}, type={selected_property_type}, sort={sort_by}")
+        logger.info(f"REQUEST: method={request.method}, region={selected_region}, postcode={selected_postcode}, suburb={selected_suburb}, type={selected_property_type}, sort={sort_by}")
         sys.stdout.flush()
         
         display_postcode = selected_postcode if selected_region else ""
@@ -370,13 +379,15 @@ def index():
         properties = []
         median_price = 0
         
-        if selected_region:
-            if selected_region and not selected_postcode and not selected_suburb:
-                filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
-            elif selected_postcode and not selected_suburb:
+        # Apply filters only if at least one is selected
+        if selected_region or selected_postcode or selected_suburb:
+            if selected_suburb:
+                # Case-insensitive suburb filter
+                filtered_df = filtered_df[filtered_df["Suburb"].str.upper() == selected_suburb.upper()]
+            elif selected_postcode:
                 filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
-            elif selected_suburb:
-                filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
+            elif selected_region:
+                filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
             
             if selected_property_type != "ALL":
                 filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
@@ -463,7 +474,7 @@ def hot_suburbs():
         elif sort_by == "Region":
             hot_suburbs_df = hot_suburbs_df.sort_values("Region")
         else:  # Median Price
-            hot_suburbs_df = hot_suburbs_df.sort_values("Price", ascending=True)  # Changed to ascending
+            hot_suburbs_df = hot_suburbs_df.sort_values("Price", ascending=True)
         
         hot_suburbs = [
             {
