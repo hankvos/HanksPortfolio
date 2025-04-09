@@ -1,15 +1,21 @@
-import logging
-import sys
 import os
+import io
+import logging
 import zipfile
+import re
+from datetime import datetime
+import sys
+import time
+import psutil
+import threading
+
 import pandas as pd
 import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend for chart generation
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import folium
+from folium.plugins import MarkerCluster
 from flask import Flask, render_template, request
-from threading import Thread, Lock
-import psutil
 
 app = Flask(__name__)
 
@@ -20,11 +26,39 @@ handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(logging.Formatter("[%(asctime)s] [%(process)d] [%(levelname)s] %(message)s"))
 logger.addHandler(handler)
 
+# Region and postcode mappings (fill in full versions from your backup)
+REGION_POSTCODE_LIST = {
+    "Central Coast": ["2083", "2250", "2251", "2256", "2257", "2258", "2259", "2260", "2261", "2262", "2263", "2775"],
+}
+ALLOWED_POSTCODES = {pc for region in REGION_POSTCODE_LIST.values() for pc in region}
+POSTCODE_COORDS = {
+    "2250": [-33.28, 151.41], "2251": [-33.31, 151.42],
+}
+REGION_CENTERS = {}
+for region_name, postcodes in REGION_POSTCODE_LIST.items():
+    coords = [POSTCODE_COORDS.get(pc) for pc in postcodes if pc in POSTCODE_COORDS]
+    coords = [c for c in coords if c]
+    if coords:
+        REGION_CENTERS[region_name] = [
+            sum(c[0] for c in coords) / len(coords),
+            sum(c[1] for c in coords) / len(coords)
+        ]
+SUBURB_COORDS = {
+    "2262": {"BLUE HAVEN": [-33.36, 151.43], "BUDGEWOI": [-33.23, 151.56], "DOYALSON": [-33.20, 151.52], "SAN REMO": [-33.21, 151.51]},
+    "2443": {"JOHNS RIVER": [-31.73, 152.70]}
+}
+
 # Global variables
 df = None
-lock = Lock()
-NATIONAL_MEDIAN = 0
-REGION_POSTCODE_LIST = {}  # Populate this if needed, e.g., from a config file
+data_loaded = False
+NATIONAL_MEDIAN = None
+lock = threading.Lock()
+
+@app.template_filter('currency')
+def currency_filter(value):
+    if value is None or pd.isna(value):
+        return "N/A"
+    return "${:,.0f}".format(value)
 
 def log_memory_usage():
     process = psutil.Process(os.getpid())
@@ -33,85 +67,217 @@ def log_memory_usage():
     sys.stdout.flush()
 
 def load_property_data():
-    global df, NATIONAL_MEDIAN
-    logger.info("Loading property data...")
+    global df, data_loaded, NATIONAL_MEDIAN
+    with lock:
+        if data_loaded:
+            logger.info("Data already loaded, skipping reload")
+            sys.stdout.flush()
+            return df
+    
+    start_time = time.time()
+    logger.info("Loading property data from 2025.zip...")
     sys.stdout.flush()
+    log_memory_usage()
+    
+    zip_file = "2025.zip"
+    result_df = pd.DataFrame(columns=["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"])
+    allowed_types = {"RESIDENCE", "COMMERCIAL", "FARM", "VACANT LAND"}
     
     try:
-        # Only process 2025.zip
-        zip_files = ["2025.zip"]
-        logger.info(f"Processing files: {zip_files}")
-        sys.stdout.flush()
+        if not os.path.exists(zip_file):
+            logger.error(f"ZIP file {zip_file} not found")
+            sys.stdout.flush()
+            return
         
-        result_df = pd.DataFrame()
-        for zip_file in zip_files:
-            if not os.path.exists(zip_file):
-                logger.warning(f"File not found: {zip_file}, skipping")
+        with zipfile.ZipFile(zip_file, 'r') as outer_zip:
+            nested_zips = [f for f in outer_zip.namelist() if f.endswith('.zip')]
+            if not nested_zips:
+                logger.warning(f"No nested ZIP files found in {zip_file}")
                 sys.stdout.flush()
-                continue
-            with zipfile.ZipFile(zip_file, 'r') as z:
-                for file_name in z.namelist():
-                    if file_name.endswith('.csv'):
-                        logger.info(f"Reading {file_name} from {zip_file}")
-                        sys.stdout.flush()
-                        with z.open(file_name) as f:
-                            temp_df = pd.read_csv(f, delimiter=';', quotechar='"', low_memory=False)
-                            result_df = pd.concat([result_df, temp_df], ignore_index=True)
+                return
+            
+            logger.info(f"Found nested zips: {nested_zips}")
+            sys.stdout.flush()
+            
+            for nested_zip_name in sorted(nested_zips, reverse=True):
+                logger.info(f"Processing {nested_zip_name}")
+                sys.stdout.flush()
+                try:
+                    with outer_zip.open(nested_zip_name) as nested_zip_file:
+                        with zipfile.ZipFile(io.BytesIO(nested_zip_file.read())) as nested_zip:
+                            dat_files = [f for f in nested_zip.namelist() if f.endswith('.DAT')]
+                            if not dat_files:
+                                logger.warning(f"No .DAT files in {nested_zip_name}")
+                                sys.stdout.flush()
+                                continue
+                            
+                            for dat_file in dat_files:
+                                logger.info(f"Reading {dat_file}")
+                                sys.stdout.flush()
+                                try:
+                                    with nested_zip.open(dat_file) as f:
+                                        lines = f.read().decode('latin1').splitlines()
+                                        logger.info(f"First few lines of {dat_file}: {lines[:5]}")
+                                        sys.stdout.flush()
+                                        parsed_rows = []
+                                        unit_numbers = {}
+                                        for line in lines:
+                                            row = line.split(';')
+                                            if row[0] == 'C' and len(row) > 5 and row[5]:
+                                                unit_numbers[row[2]] = row[5]
+                                            if row[0] == 'B' and len(row) > 18 and row[18] in allowed_types:
+                                                parsed_rows.append(row)
+                                        
+                                        if not parsed_rows:
+                                            logger.info(f"No valid B records in {dat_file}")
+                                            sys.stdout.flush()
+                                            continue
+                                        
+                                        temp_df = pd.DataFrame(parsed_rows)
+                                        temp_df = temp_df.rename(columns={
+                                            7: "House Number", 8: "StreetOnly", 9: "Suburb", 10: "Postcode",
+                                            11: "Block Size", 14: "Settlement Date", 15: "Price", 18: "Property Type",
+                                            2: "Property ID"
+                                        })
+                                        temp_df["Unit Number"] = temp_df["Property ID"].map(unit_numbers).fillna("")
+                                        temp_df["Street"] = temp_df["House Number"] + " " + temp_df["StreetOnly"]
+                                        temp_df["Property Type"] = temp_df["Property Type"].replace("RESIDENCE", "HOUSE")
+                                        temp_df["Property Type"] = temp_df.apply(
+                                            lambda row: "UNIT" if (
+                                                row["Property Type"] == "HOUSE" and 
+                                                row["Unit Number"] and 
+                                                re.match(r'^\d+[A-Za-z]?$', row["Unit Number"].strip())
+                                            ) else row["Property Type"],
+                                            axis=1
+                                        )
+                                        temp_df = temp_df[["Postcode", "Price", "Settlement Date", "Suburb", "Property Type", "Street", "StreetOnly", "Block Size", "Unit Number"]]
+                                        temp_df["Postcode"] = temp_df["Postcode"].astype(str)
+                                        temp_df["Price"] = pd.to_numeric(temp_df["Price"], errors='coerce', downcast='float')
+                                        temp_df["Block Size"] = pd.to_numeric(temp_df["Block Size"], errors='coerce', downcast='float').round(0)
+                                        temp_df["Settlement Date"] = pd.to_datetime(temp_df["Settlement Date"], format='%Y%m%d', errors='coerce')
+                                        temp_df = temp_df[temp_df["Settlement Date"].dt.year >= 2024]
+                                        temp_df["Settlement Date"] = temp_df["Settlement Date"].dt.strftime('%d/%m/%Y')
+                                        temp_df = temp_df[temp_df["Postcode"].isin(ALLOWED_POSTCODES)]
+                                        temp_df["Price"] = temp_df["Price"].clip(lower=10000)
+                                        
+                                        if not temp_df.empty and not temp_df.isna().all().all():
+                                            result_df = pd.concat([result_df, temp_df], ignore_index=True)
+                                except Exception as e:
+                                    logger.error(f"Error reading {dat_file}: {str(e)}", exc_info=True)
+                                    sys.stdout.flush()
+                except Exception as e:
+                    logger.error(f"Error processing {nested_zip_name}: {str(e)}", exc_info=True)
+                    sys.stdout.flush()
         
-        logger.info(f"Processed {len(result_df)} records from {zip_files}")
-        sys.stdout.flush()
-        
-        # Clean and process data (adjust based on your CSV structure)
-        result_df['Price'] = pd.to_numeric(result_df['Sale Price'], errors='coerce')
-        result_df['Property Type'] = result_df['Property Type'].fillna('UNKNOWN').str.upper()
-        simplified_types = {
-            'RESIDENCE': 'HOUSE', 'HOME UNIT': 'HOUSE', 'DUPLEX': 'HOUSE',
-            'VACANT LAND': 'VACANT LAND', 'FARM LAND': 'FARM', 'FARMLAND': 'FARM', 'FARM': 'FARM',
-            'COMMERCIAL': 'COMMERCIAL', 'WAREHOUSE': 'COMMERCIAL', 'SHOP': 'COMMERCIAL',
-            'FACTORY': 'COMMERCIAL', 'OFFICE': 'COMMERCIAL', 'RETAIL': 'COMMERCIAL'
-        }
-        result_df['Property Type'] = result_df['Property Type'].map(lambda x: simplified_types.get(x, 'OTHER'))
+        if result_df.empty:
+            logger.warning("No valid data processed from 2025.zip")
+            sys.stdout.flush()
+        else:
+            NATIONAL_MEDIAN = result_df["Price"].median()
+            logger.info(f"National median price calculated: ${NATIONAL_MEDIAN:,.0f}")
+            logger.info(f"Processed {len(result_df)} records from {zip_file}")
+            sys.stdout.flush()
         
         with lock:
             df = result_df
-            NATIONAL_MEDIAN = df['Price'].median() if not df['Price'].isna().all() else 0
-        logger.info(f"National median price calculated: ${NATIONAL_MEDIAN:,.0f}")
-        logger.info(f"Loaded {len(df)} records into DataFrame")
-        sys.stdout.flush()
-        
+            data_loaded = True
+        logger.info(f"Data load completed in {time.time() - start_time:.2f} seconds")
+        log_memory_usage()
+    
     except Exception as e:
         logger.error(f"Error loading data: {str(e)}", exc_info=True)
         sys.stdout.flush()
-        raise
 
 def generate_heatmap():
     logger.info("Generating heatmap...")
     sys.stdout.flush()
-    m = folium.Map(location=[-33.8688, 151.2093], zoom_start=10)  # Example: Sydney
-    m.save("static/heatmap.html")
-    logger.info("Heatmap generated at static/heatmap.html")
+    with lock:
+        df_local = df.copy() if df is not None else pd.DataFrame()
+    if df_local.empty:
+        logger.warning("No data for heatmap")
+        sys.stdout.flush()
+        m = folium.Map(location=[-33.8688, 151.2093], zoom_start=10)
+    else:
+        m = folium.Map(zoom_start=6)
+        marker_cluster = MarkerCluster().add_to(m)
+        coords = df_local[df_local["Price"] < 9_000_000].dropna(subset=["Price"]).sample(min(1000, len(df_local)))
+        all_coords = []
+        for _, row in coords.iterrows():
+            latlon = SUBURB_COORDS.get(row["Postcode"], {}).get(row["Suburb"])
+            if not latlon:
+                latlon = POSTCODE_COORDS.get(row["Postcode"])
+            if not latlon:
+                region = next((r for r, pcs in REGION_POSTCODE_LIST.items() if row["Postcode"] in pcs), None)
+                latlon = REGION_CENTERS.get(region) if region else [-32.5, 152.5]
+            folium.Marker(
+                location=latlon,
+                popup=f"{row['Street']}, {row['Suburb']} {row['Postcode']} - ${row['Price']:,.0f}"
+            ).add_to(marker_cluster)
+            all_coords.append(latlon)
+        if all_coords:
+            lats = [c[0] for c in all_coords]
+            lons = [c[1] for c in all_coords]
+            m.fit_bounds([[min(lats), min(lons)], [max(lats), max(lons)]])
+    heatmap_path = "static/heatmap.html"
+    m.save(heatmap_path)
+    logger.info(f"Heatmap generated at {heatmap_path}")
     sys.stdout.flush()
+    return heatmap_path
 
-def generate_region_median_chart(region=None, postcode=None):
+def generate_region_median_chart(selected_region=None, selected_postcode=None):
     logger.info("Generating region median chart...")
     sys.stdout.flush()
-    plt.figure(figsize=(10, 6))
-    plt.title("Region Median Chart (Placeholder)")
-    plt.savefig("static/region_median_chart.png")
+    with lock:
+        df_local = df.copy() if df is not None else pd.DataFrame()
+    if df_local.empty:
+        logger.warning("No data for chart")
+        sys.stdout.flush()
+        plt.figure(figsize=(12, 6))
+        plt.title("No Data Available")
+        plt.savefig("static/region_median_chart.png")
+        plt.close()
+        return "static/region_median_chart.png"
+    
+    if selected_postcode:
+        median_data = df_local[df_local["Postcode"] == selected_postcode].groupby('Suburb')['Price'].median().sort_values()
+        title = f"Median House Prices by Suburb (Postcode {selected_postcode})"
+        x_label = "Suburb"
+    elif selected_region:
+        postcodes = REGION_POSTCODE_LIST.get(selected_region, [])
+        median_data = df_local[df_local["Postcode"].isin(postcodes)].groupby('Postcode')['Price'].median().sort_values()
+        title = f"Median House Prices by Postcode ({selected_region})"
+        x_label = "Postcode"
+    else:
+        region_medians = df_local.groupby('Postcode')['Price'].median().reset_index()
+        postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
+        region_medians['Region'] = region_medians['Postcode'].map(postcode_to_region)
+        median_data = region_medians.groupby('Region')['Price'].median().sort_values()
+        title = "Median House Prices by Region"
+        x_label = "Region"
+    
+    plt.figure(figsize=(12, 6))
+    median_data.plot(kind='bar', color='skyblue')
+    plt.title(title)
+    plt.ylabel('Median Price ($)')
+    plt.xlabel(x_label)
+    for i, v in enumerate(median_data):
+        plt.text(i, v, f"${v:,.0f}", ha='center', va='bottom')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    chart_path = "static/region_median_chart.png"
+    plt.savefig(chart_path)
     plt.close()
-    logger.info("Region median chart generated at static/region_median_chart.png")
+    logger.info(f"Region median chart generated at {chart_path}")
     sys.stdout.flush()
-    return "static/region_median_chart.png"
+    return chart_path
 
 def startup_tasks():
     logger.info("Starting background data load...")
     sys.stdout.flush()
     load_property_data()
-    log_memory_usage()
-    logger.info("Pre-generating charts in background...")
-    sys.stdout.flush()
-    generate_heatmap()
-    generate_region_median_chart()
+    if df is not None and not df.empty:
+        generate_heatmap()
+        generate_region_median_chart()
     with open("/tmp/startup_complete.flag", "w") as f:
         f.write("done")
     logger.info("Startup tasks completed")
@@ -135,66 +301,92 @@ def index():
     logger.info("START: Request received for /")
     sys.stdout.flush()
     
-    startup_complete = is_startup_complete()
-    logger.info(f"STARTUP STATUS: complete={startup_complete}")
-    sys.stdout.flush()
-    if not startup_complete:
+    if not is_startup_complete():
         logger.info("STARTUP INCOMPLETE: Returning loading.html")
         sys.stdout.flush()
         return render_template("loading.html")
     
     try:
-        logger.info("PROCESSING: Entering main logic")
-        sys.stdout.flush()
-        
-        # Log memory before heavy operations
-        process = psutil.Process(os.getpid())
-        mem_before = process.memory_info().rss / 1024 / 1024
-        logger.info(f"MEMORY BEFORE: RSS={mem_before:.2f} MB")
-        sys.stdout.flush()
-        
-        logger.info("DATAFRAME: Attempting to access df")
-        sys.stdout.flush()
-        if 'df' not in globals() or df is None:
-            logger.error("DATAFRAME ERROR: df is None or not initialized")
-            sys.stdout.flush()
-            raise ValueError("DataFrame not initialized")
-        
-        logger.info("DATAFRAME: Copying df")
-        sys.stdout.flush()
-        df_local = df.copy()
+        with lock:
+            df_local = df.copy() if df is not None else pd.DataFrame()
         logger.info(f"DATAFRAME: Copied {len(df_local)} rows")
         sys.stdout.flush()
         
-        # Log memory after copy
-        mem_after = process.memory_info().rss / 1024 / 1024
-        logger.info(f"MEMORY AFTER COPY: RSS={mem_after:.2f} MB")
+        unique_postcodes = sorted(df_local["Postcode"].unique()) if not df_local.empty else []
+        unique_suburbs = sorted(df_local["Suburb"].unique()) if not df_local.empty else []
+        
+        selected_region = request.form.get("region", "")
+        selected_postcode = request.form.get("postcode", "")
+        selected_suburb = request.form.get("suburb", "")
+        selected_property_type = request.form.get("property_type", "HOUSE")
+        sort_by = request.form.get("sort_by", "Street")
+        
+        logger.info(f"FORM: region={selected_region}, postcode={selected_postcode}, suburb={selected_suburb}, type={selected_property_type}, sort={sort_by}")
         sys.stdout.flush()
         
-        # Minimal response for testing
-        logger.info("RENDERING: Starting template render")
+        display_postcode = selected_postcode if selected_region else ""
+        display_suburb = selected_suburb if selected_region and selected_postcode else ""
+        
+        chart_path = generate_region_median_chart(selected_region, selected_postcode)
+        
+        filtered_df = df_local.copy()
+        properties = []
+        median_price = 0
+        
+        if selected_region and not selected_postcode and not selected_suburb:
+            filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
+        elif selected_postcode and not selected_suburb:
+            filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
+        elif selected_suburb:
+            filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
+        
+        if selected_property_type != "ALL":
+            filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
+        
+        if not filtered_df.empty:
+            if sort_by == "Street":
+                properties = filtered_df.sort_values(by="StreetOnly").to_dict('records')
+            else:
+                properties = filtered_df.sort_values(by=sort_by).to_dict('records')
+            median_price = filtered_df["Price"].median()
+        
+        logger.info(f"FILTERED: {len(properties)} properties")
+        sys.stdout.flush()
+        
+        heatmap_path = "static/heatmap.html" if os.path.exists("static/heatmap.html") else None
+        region_median_chart_path = "static/region_median_chart.png" if os.path.exists("static/region_median_chart.png") else None
+        
+        logger.info("RENDERING: Starting index.html render")
         sys.stdout.flush()
         response = render_template("index.html",
-                                  properties=df_local.head(10).to_dict('records'),
+                                  data_source="NSW Valuer General Data",
+                                  regions=sorted(REGION_POSTCODE_LIST.keys()),
+                                  postcodes=unique_postcodes,
+                                  suburbs=unique_suburbs,
+                                  property_types=["ALL", "HOUSE", "UNIT", "COMMERCIAL", "FARM", "VACANT LAND"],
+                                  selected_region=selected_region,
+                                  selected_postcode=display_postcode,
+                                  selected_suburb=display_suburb,
+                                  selected_property_type=selected_property_type,
+                                  sort_by=sort_by,
+                                  heatmap_path=heatmap_path,
+                                  region_median_chart_path=region_median_chart_path,
+                                  properties=properties,
+                                  median_price=median_price,
                                   national_median=NATIONAL_MEDIAN,
-                                  heatmap_path="static/heatmap.html" if os.path.exists("static/heatmap.html") else None,
-                                  region_median_chart_path="static/region_median_chart.png" if os.path.exists("static/region_median_chart.png") else None)
-        logger.info("RENDERING: Template rendered successfully")
+                                  display_suburb=selected_suburb if selected_suburb else None)
+        logger.info("RENDERING: Completed")
         sys.stdout.flush()
-        
         return response
     except Exception as e:
-        logger.error(f"ERROR: Exception in index: {str(e)}", exc_info=True)
+        logger.error(f"ERROR: {str(e)}", exc_info=True)
         sys.stdout.flush()
         return "Internal Server Error", 500
-    finally:
-        logger.info("END: Request processing completed")
-        sys.stdout.flush()
 
 if __name__ == "__main__":
     if not os.path.exists("static"):
         os.makedirs("static")
-    Thread(target=startup_tasks).start()
+    threading.Thread(target=startup_tasks, daemon=True).start()
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port, debug=False)
 else:
@@ -203,4 +395,4 @@ else:
     app.logger.setLevel(gunicorn_logger.level)
     if not os.path.exists("static"):
         os.makedirs("static")
-    Thread(target=startup_tasks).start()
+    threading.Thread(target=startup_tasks, daemon=True).start()
