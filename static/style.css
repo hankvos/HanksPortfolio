@@ -206,3 +206,9 @@ a:hover {
         font-size: 14px; /* Readable on small screens */
     }
 }
+
+/* Add this to the end of your existing style.css */
+table th:last-child, table td:last-child {
+    text-align: center;
+    width: 60px; /* Narrower width for the Map column */
+}

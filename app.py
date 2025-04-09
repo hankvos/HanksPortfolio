@@ -8,6 +8,7 @@ import sys
 import time
 import psutil
 import threading
+import urllib.parse  # Added for URL encoding
 
 import pandas as pd
 import matplotlib
@@ -39,9 +40,9 @@ POSTCODE_COORDS = {
     "2250": [-33.28, 151.41], "2251": [-33.31, 151.42], "2621": [-35.42, 149.81], "2217": [-33.97, 151.11],
     "2408": [-29.05, 148.77], "2460": [-29.68, 152.93], "2582": [-34.98, 149.23], "2580": [-34.57, 148.93],
     "2843": [-31.95, 149.43], "2650": [-35.12, 147.35], "2795": [-33.42, 149.58], "2444": [-31.65, 152.79],
-    "2000": [-33.87, 151.21],
-    "2261": [-33.30, 151.50], "2450": [-30.30, 153.12], "2320": [-32.73, 151.55], "2330": [-32.58, 151.17],
-    "2430": [-31.90, 152.46], "2300": [-32.9283, 151.7817], "2280": [-33.0333, 151.6333], "2285": [-32.9667, 151.6333]
+    "2000": [-33.87, 151.21], "2261": [-33.30, 151.50], "2450": [-30.30, 153.12], "2320": [-32.73, 151.55],
+    "2330": [-32.58, 151.17], "2430": [-31.90, 152.46], "2300": [-32.9283, 151.7817], "2280": [-33.0333, 151.6333],
+    "2285": [-32.9667, 151.6333]
 }
 REGION_CENTERS = {}
 for region_name, postcodes in REGION_POSTCODE_LIST.items():
@@ -170,7 +171,7 @@ def load_property_data():
                                         temp_df["Block Size"] = pd.to_numeric(temp_df["Block Size"], errors='coerce', downcast='float').round(0)
                                         temp_df["Settlement Date"] = pd.to_datetime(temp_df["Settlement Date"], format='%Y%m%d', errors='coerce')
                                         temp_df = temp_df[temp_df["Settlement Date"].dt.year >= 2024]
-                                        temp_df["Settlement Date Str"] = temp_df["Settlement Date"].dt.strftime('%d/%m/%Y')  # For display
+                                        temp_df["Settlement Date Str"] = temp_df["Settlement Date"].dt.strftime('%d/%m/%Y')
                                         temp_df = temp_df[temp_df["Postcode"].isin(ALLOWED_POSTCODES)]
                                         temp_df["Price"] = temp_df["Price"].clip(lower=10000)
                                         
@@ -349,7 +350,6 @@ def index():
         selected_property_type = request.form.get("property_type", "HOUSE")
         sort_by = request.form.get("sort_by", "Street")
         
-        # Filter postcodes and suburbs based on selections
         if selected_region:
             unique_postcodes = [pc for pc in unique_postcodes if pc in REGION_POSTCODE_LIST.get(selected_region, [])]
         if selected_postcode:
@@ -370,7 +370,7 @@ def index():
         properties = []
         median_price = 0
         
-        if selected_region:  # Only process properties if a region is selected
+        if selected_region:
             if selected_region and not selected_postcode and not selected_suburb:
                 filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
             elif selected_postcode and not selected_suburb:
@@ -385,7 +385,7 @@ def index():
                 if sort_by == "Street":
                     properties = filtered_df.sort_values(by="StreetOnly").to_dict('records')
                 elif sort_by == "Settlement Date":
-                    properties = filtered_df.sort_values(by="Settlement Date").to_dict('records')  # Use datetime column
+                    properties = filtered_df.sort_values(by="Settlement Date").to_dict('records')
                 else:
                     properties = filtered_df.sort_values(by=sort_by).to_dict('records')
                 median_price = filtered_df["Price"].median()
@@ -445,6 +445,7 @@ def hot_suburbs():
             return render_template("hot_suburbs.html", 
                                  data_source="NSW Valuer General Data",
                                  hot_suburbs=[],
+                                 total_suburbs=0,
                                  national_median=NATIONAL_MEDIAN,
                                  sort_by="Median Price")
         
@@ -452,6 +453,7 @@ def hot_suburbs():
         hot_suburbs_df = suburb_medians[suburb_medians["Price"] < NATIONAL_MEDIAN].copy()
         postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
         hot_suburbs_df["Region"] = hot_suburbs_df["Postcode"].map(postcode_to_region).fillna("Unknown")
+        total_suburbs = len(suburb_medians)
         
         sort_by = request.form.get("sort_by", "Median Price")
         if sort_by == "Suburb":
@@ -460,8 +462,8 @@ def hot_suburbs():
             hot_suburbs_df = hot_suburbs_df.sort_values("Postcode")
         elif sort_by == "Region":
             hot_suburbs_df = hot_suburbs_df.sort_values("Region")
-        else:
-            hot_suburbs_df = hot_suburbs_df.sort_values("Price", ascending=False)
+        else:  # Median Price
+            hot_suburbs_df = hot_suburbs_df.sort_values("Price", ascending=True)  # Changed to ascending
         
         hot_suburbs = [
             {
@@ -479,6 +481,7 @@ def hot_suburbs():
         return render_template("hot_suburbs.html",
                              data_source="NSW Valuer General Data",
                              hot_suburbs=hot_suburbs,
+                             total_suburbs=total_suburbs,
                              national_median=NATIONAL_MEDIAN,
                              sort_by=sort_by)
     
