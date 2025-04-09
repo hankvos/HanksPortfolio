@@ -1,150 +1,42 @@
-body {
-    font-family: Arial, sans-serif;
-    margin: 20px;
-    background: #f5f5f5;
-}
-
-.data-source {
-    font-size: 0.9em;
-    color: #666;
-    text-align: center;
-    font-style: italic;
-    margin: 0 auto 20px auto;
-    max-width: 1200px;
-}
-
-.container {
-    max-width: 1200px;
-    margin: auto;
-    padding: 20px;
-    background: white;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 20px;
-}
-
-.left-column {
-    flex: 1;
-    min-width: 300px;
-    max-width: 400px;
-}
-
-.right-column {
-    flex: 2;
-    min-width: 400px;
-}
-
-h1 {
-    color: #333;
-    text-align: center;
-    margin-bottom: 20px;
-}
-
-h2 {
-    color: #333;
-    margin-bottom: 10px;
-}
-
-label {
-    margin-right: 10px;
-}
-
-select, button {
-    padding: 8px;
-    margin: 5px;
-    width: 100%;
-    box-sizing: border-box;
-}
-
-button {
-    font-family: inherit;
-    font-size: inherit;
-}
-
-.button {
-    display: inline-block;
-    padding: 8px 16px;
-    margin: 10px 0;
-    background: #4682B4;
-    color: white;
-    text-decoration: none;
-    border-radius: 4px;
-    text-align: center;
-    width: 100%;
-    box-sizing: border-box;
-}
-
-.button:hover {
-    background: #36648B;
-}
-
-.error {
-    color: red;
-}
-
-.chart-container {
-    text-align: right;
-    margin-bottom: 20px;
-}
-
-.region-chart {
-    width: 100%;
-    max-width: 800px;
-    height: auto;
-}
-
-.properties-container {
-    width: 100%;
-}
-
-table {
-    border-collapse: collapse;
-    width: 100%;
-    margin-top: 20px;
-}
-
-th, td {
-    padding: 10px;
-    border: 1px solid #ddd;
-}
-
-th {
-    background: #4682B4;
-    color: white;
-}
-
-th:last-child, td:last-child {
-    text-align: center;
-    width: 100px;
-}
-
-.hot-suburbs-table {
-    width: 100%;
-    max-width: 1000px;
-    margin: 20px auto;
-}
-
-.hot-suburbs-table th, .hot-suburbs-table td {
-    padding: 12px;
-    min-width: 100px;
-}
-
-iframe {
-    width: 100%;
-    height: 300px;
-    border: none;
-    margin-bottom: 20px;
-}
-
-.stats {
-    margin-top: 20px;
-}
-
-a {
-    color: #4682B4;
-    text-decoration: none;
-}
-
-a:hover {
-    text-decoration: underline;
-}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Hot Suburbs</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="data-source">{{ data_source }}</div>
+    <div class="container">
+        <h1>Hot Suburbs ({{ hot_suburbs|length }} found, Below National Median: ${{ "{:,.0f}".format(national_median) }})</h1>
+        <a href="/" class="button">Back to Dashboard</a>
+        <form method="POST" action="/hot_suburbs">
+            <label for="sort_by">Sort By:</label>
+            <select name="sort_by" id="sort_by" onchange="this.form.submit()">
+                <option value="Suburb" {% if sort_by == "Suburb" %}selected{% endif %}>Suburb</option>
+                <option value="Postcode" {% if sort_by == "Postcode" %}selected{% endif %}>Postcode</option>
+                <option value="Region" {% if sort_by == "Region" %}selected{% endif %}>Region</option>
+                <option value="Median Price" {% if sort_by == "Median Price" %}selected{% endif %}>Median Price</option>
+            </select>
+        </form>
+        <table class="hot-suburbs-table">
+            <tr>
+                <th {% if sort_by == "Suburb" %}class="sorted"{% endif %}>Suburb</th>
+                <th {% if sort_by == "Postcode" %}class="sorted"{% endif %}>Postcode</th>
+                <th {% if sort_by == "Region" %}class="sorted"{% endif %}>Region</th>
+                <th {% if sort_by == "Median Price" %}class="sorted"{% endif %}>Median Price</th>
+            </tr>
+            {% for suburb in hot_suburbs %}
+            <tr>
+                <td>
+                    <a href="{{ url_for('index', region=suburb.region, postcode=suburb.postcode, suburb=suburb.suburb, property_type='HOUSE', sort_by='Street') }}">{{ suburb.suburb }}</a>
+                </td>
+                <td>{{ suburb.postcode }}</td>
+                <td>{{ suburb.region }}</td>
+                <td>{{ suburb.median_price | currency }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</body>
+</html>

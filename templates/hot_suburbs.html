@@ -8,7 +8,7 @@
 <body>
     <div class="data-source">{{ data_source }}</div>
     <div class="container">
-        <h1>Hot Suburbs (Below National Median: ${{ "{:,.0f}".format(national_median) }})</h1>
+        <h1>Hot Suburbs ({{ hot_suburbs|length }} found, Below National Median: ${{ "{:,.0f}".format(national_median) }})</h1>
         <a href="/" class="button">Back to Dashboard</a>
         <form method="POST" action="/hot_suburbs">
             <label for="sort_by">Sort By:</label>
@@ -21,22 +21,15 @@
         </form>
         <table class="hot-suburbs-table">
             <tr>
-                <th>Suburb</th>
-                <th>Postcode</th>
-                <th>Region</th>
-                <th>Median Price</th>
+                <th {% if sort_by == "Suburb" %}class="sorted"{% endif %}>Suburb</th>
+                <th {% if sort_by == "Postcode" %}class="sorted"{% endif %}>Postcode</th>
+                <th {% if sort_by == "Region" %}class="sorted"{% endif %}>Region</th>
+                <th {% if sort_by == "Median Price" %}class="sorted"{% endif %}>Median Price</th>
             </tr>
             {% for suburb in hot_suburbs %}
             <tr>
                 <td>
-                    <form method="POST" action="/" style="display:inline;">
-                        <input type="hidden" name="region" value="{{ suburb.region }}">
-                        <input type="hidden" name="postcode" value="{{ suburb.postcode }}">
-                        <input type="hidden" name="suburb" value="{{ suburb.suburb }}">
-                        <input type="hidden" name="property_type" value="HOUSE">
-                        <input type="hidden" name="sort_by" value="Street">
-                        <a href="#" onclick="this.parentNode.submit(); return false;">{{ suburb.suburb }}</a>
-                    </form>
+                    <a href="{{ url_for('index', region=suburb.region, postcode=suburb.postcode, suburb=suburb.suburb, property_type='HOUSE', sort_by='Street') }}">{{ suburb.suburb }}</a>
                 </td>
                 <td>{{ suburb.postcode }}</td>
                 <td>{{ suburb.region }}</td>

@@ -15,7 +15,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import folium
 from folium.plugins import MarkerCluster
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, url_for
 
 app = Flask(__name__)
 
@@ -349,6 +349,15 @@ def index():
         selected_property_type = request.form.get("property_type", "HOUSE")
         sort_by = request.form.get("sort_by", "Street")
         
+        # Filter postcodes and suburbs based on selections
+        if selected_region:
+            unique_postcodes = [pc for pc in unique_postcodes if pc in REGION_POSTCODE_LIST.get(selected_region, [])]
+        if selected_postcode:
+            unique_suburbs = sorted(df_local[df_local["Postcode"] == selected_postcode]["Suburb"].unique())
+        elif selected_region:
+            postcodes = REGION_POSTCODE_LIST.get(selected_region, [])
+            unique_suburbs = sorted(df_local[df_local["Postcode"].isin(postcodes)]["Suburb"].unique())
+        
         logger.info(f"FORM: region={selected_region}, postcode={selected_postcode}, suburb={selected_suburb}, type={selected_property_type}, sort={sort_by}")
         sys.stdout.flush()
         
@@ -360,6 +369,7 @@ def index():
         filtered_df = df_local.copy()
         properties = []
         median_price = 0
+        avg_price = 0
         
         if selected_region and not selected_postcode and not selected_suburb:
             filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
@@ -377,6 +387,7 @@ def index():
             else:
                 properties = filtered_df.sort_values(by=sort_by).to_dict('records')
             median_price = filtered_df["Price"].median()
+            avg_price = filtered_df["Price"].mean()
         
         logger.info(f"FILTERED: {len(properties)} properties")
         sys.stdout.flush()
@@ -401,11 +412,83 @@ def index():
                                   region_median_chart_path=region_median_chart_path,
                                   properties=properties,
                                   median_price=median_price,
+                                  avg_price=avg_price,
                                   national_median=NATIONAL_MEDIAN,
                                   display_suburb=selected_suburb if selected_suburb else None)
         logger.info("RENDERING: Completed")
         sys.stdout.flush()
         return response
+    except Exception as e:
+        logger.error(f"ERROR: {str(e)}", exc_info=True)
+        sys.stdout.flush()
+        return "Internal Server Error", 500
+
+@app.route('/hot_suburbs', methods=["GET", "POST"])
+def hot_suburbs():
+    logger.info("START: Request received for /hot_suburbs")
+    sys.stdout.flush()
+    
+    if not is_startup_complete():
+        logger.info("STARTUP INCOMPLETE: Returning loading.html")
+        sys.stdout.flush()
+        return render_template("loading.html")
+    
+    try:
+        with lock:
+            df_local = df.copy() if df is not None else pd.DataFrame()
+        logger.info(f"DATAFRAME: Copied {len(df_local)} rows")
+        sys.stdout.flush()
+        
+        if df_local.empty or NATIONAL_MEDIAN is None:
+            logger.warning("No data or national median available for hot suburbs")
+            sys.stdout.flush()
+            return render_template("hot_suburbs.html", 
+                                 data_source="NSW Valuer General Data",
+                                 hot_suburbs=[],
+                                 national_median=NATIONAL_MEDIAN,
+                                 sort_by="Median Price")
+        
+        # Calculate median prices by suburb
+        suburb_medians = df_local.groupby(["Suburb", "Postcode"])["Price"].median().reset_index()
+        
+        # Filter for suburbs below national median
+        hot_suburbs_df = suburb_medians[suburb_medians["Price"] < NATIONAL_MEDIAN].copy()
+        
+        # Map postcodes to regions
+        postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
+        hot_suburbs_df["Region"] = hot_suburbs_df["Postcode"].map(postcode_to_region).fillna("Unknown")
+        
+        # Handle sorting
+        sort_by = request.form.get("sort_by", "Median Price")
+        if sort_by == "Suburb":
+            hot_suburbs_df = hot_suburbs_df.sort_values("Suburb")
+        elif sort_by == "Postcode":
+            hot_suburbs_df = hot_suburbs_df.sort_values("Postcode")
+        elif sort_by == "Region":
+            hot_suburbs_df = hot_suburbs_df.sort_values("Region")
+        else:  # Default to Median Price
+            hot_suburbs_df = hot_suburbs_df.sort_values("Price", ascending=False)
+        
+        # Prepare data for template
+        hot_suburbs = [
+            {
+                "suburb": row["Suburb"],
+                "postcode": row["Postcode"],
+                "region": row["Region"],
+                "median_price": row["Price"]
+            }
+            for _, row in hot_suburbs_df.iterrows()
+        ]
+        
+        logger.info(f"HOT SUBURBS: Found {len(hot_suburbs)} suburbs below national median")
+        sys.stdout.flush()
+        
+        return render_template("hot_suburbs.html",
+                             data_source="NSW Valuer General Data",
+                             hot_suburbs=hot_suburbs,
+                             national_median=NATIONAL_MEDIAN,
+                             sort_by=sort_by)
+    
     except Exception as e:
         logger.error(f"ERROR: {str(e)}", exc_info=True)
         sys.stdout.flush()
