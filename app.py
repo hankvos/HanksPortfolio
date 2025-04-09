@@ -26,13 +26,16 @@ handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(logging.Formatter("[%(asctime)s] [%(process)d] [%(levelname)s] %(message)s"))
 logger.addHandler(handler)
 
-# Region and postcode mappings (fill in full versions from your backup)
+# Region and postcode mappings (expand as needed)
 REGION_POSTCODE_LIST = {
     "Central Coast": ["2083", "2250", "2251", "2256", "2257", "2258", "2259", "2260", "2261", "2262", "2263", "2775"],
 }
 ALLOWED_POSTCODES = {pc for region in REGION_POSTCODE_LIST.values() for pc in region}
 POSTCODE_COORDS = {
-    "2250": [-33.28, 151.41], "2251": [-33.31, 151.42],
+    "2250": [-33.28, 151.41], "2251": [-33.31, 151.42], "2621": [-35.42, 149.81], "2217": [-33.97, 151.11],
+    "2408": [-29.05, 148.77], "2460": [-29.68, 152.93], "2582": [-34.98, 149.23], "2580": [-34.57, 148.93],
+    "2843": [-31.95, 149.43], "2650": [-35.12, 147.35], "2795": [-33.42, 149.58], "2444": [-31.65, 152.79],
+    "2000": [-33.87, 151.21]
 }
 REGION_CENTERS = {}
 for region_name, postcodes in REGION_POSTCODE_LIST.items():
@@ -45,7 +48,18 @@ for region_name, postcodes in REGION_POSTCODE_LIST.items():
         ]
 SUBURB_COORDS = {
     "2262": {"BLUE HAVEN": [-33.36, 151.43], "BUDGEWOI": [-33.23, 151.56], "DOYALSON": [-33.20, 151.52], "SAN REMO": [-33.21, 151.51]},
-    "2443": {"JOHNS RIVER": [-31.73, 152.70]}
+    "2443": {"JOHNS RIVER": [-31.73, 152.70]},
+    "2621": {"BUNGENDORE": [-35.25, 149.44]},
+    "2217": {"MONTEREY": [-33.97, 151.15]},
+    "2408": {"NORTH STAR": [-28.93, 150.39]},
+    "2460": {"COOMBADJHA": [-29.03, 152.38]},
+    "2582": {"YASS": [-34.84, 148.91]},
+    "2580": {"GOULBURN": [-34.75, 149.72]},
+    "2843": {"COOLAH": [-31.82, 149.72]},
+    "2650": {"WAGGA WAGGA": [-35.12, 147.35]},
+    "2795": {"BATHURST": [-33.42, 149.58]},
+    "2444": {"THRUMSTER": [-31.47, 152.83]},
+    "2000": {"SYDNEY": [-33.87, 151.21]}
 }
 
 # Global variables
@@ -219,8 +233,11 @@ def generate_heatmap():
             lons = [c[1] for c in all_coords]
             m.fit_bounds([[min(lats), min(lons)], [max(lats), max(lons)]])
     heatmap_path = "static/heatmap.html"
-    m.save(heatmap_path)
-    logger.info(f"Heatmap generated at {heatmap_path}")
+    try:
+        m.save(heatmap_path)
+        logger.info(f"Heatmap generated at {heatmap_path}")
+    except Exception as e:
+        logger.error(f"Failed to save heatmap: {str(e)}", exc_info=True)
     sys.stdout.flush()
     return heatmap_path
 
@@ -238,36 +255,44 @@ def generate_region_median_chart(selected_region=None, selected_postcode=None):
         plt.close()
         return "static/region_median_chart.png"
     
-    if selected_postcode:
-        median_data = df_local[df_local["Postcode"] == selected_postcode].groupby('Suburb')['Price'].median().sort_values()
-        title = f"Median House Prices by Suburb (Postcode {selected_postcode})"
-        x_label = "Suburb"
-    elif selected_region:
-        postcodes = REGION_POSTCODE_LIST.get(selected_region, [])
-        median_data = df_local[df_local["Postcode"].isin(postcodes)].groupby('Postcode')['Price'].median().sort_values()
-        title = f"Median House Prices by Postcode ({selected_region})"
-        x_label = "Postcode"
-    else:
-        region_medians = df_local.groupby('Postcode')['Price'].median().reset_index()
-        postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
-        region_medians['Region'] = region_medians['Postcode'].map(postcode_to_region)
-        median_data = region_medians.groupby('Region')['Price'].median().sort_values()
-        title = "Median House Prices by Region"
-        x_label = "Region"
-    
-    plt.figure(figsize=(12, 6))
-    median_data.plot(kind='bar', color='skyblue')
-    plt.title(title)
-    plt.ylabel('Median Price ($)')
-    plt.xlabel(x_label)
-    for i, v in enumerate(median_data):
-        plt.text(i, v, f"${v:,.0f}", ha='center', va='bottom')
-    plt.xticks(rotation=45, ha='right')
-    plt.tight_layout()
-    chart_path = "static/region_median_chart.png"
-    plt.savefig(chart_path)
-    plt.close()
-    logger.info(f"Region median chart generated at {chart_path}")
+    try:
+        if selected_postcode:
+            median_data = df_local[df_local["Postcode"] == selected_postcode].groupby('Suburb')['Price'].median().sort_values()
+            title = f"Median House Prices by Suburb (Postcode {selected_postcode})"
+            x_label = "Suburb"
+        elif selected_region:
+            postcodes = REGION_POSTCODE_LIST.get(selected_region, [])
+            median_data = df_local[df_local["Postcode"].isin(postcodes)].groupby('Postcode')['Price'].median().sort_values()
+            title = f"Median House Prices by Postcode ({selected_region})"
+            x_label = "Postcode"
+        else:
+            region_medians = df_local.groupby('Postcode')['Price'].median().reset_index()
+            postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
+            region_medians['Region'] = region_medians['Postcode'].map(postcode_to_region)
+            median_data = region_medians.groupby('Region')['Price'].median().sort_values()
+            title = "Median House Prices by Region"
+            x_label = "Region"
+        
+        plt.figure(figsize=(12, 6))
+        median_data.plot(kind='bar', color='skyblue')
+        plt.title(title)
+        plt.ylabel('Median Price ($)')
+        plt.xlabel(x_label)
+        for i, v in enumerate(median_data):
+            plt.text(i, v, f"${v:,.0f}", ha='center', va='bottom')
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        chart_path = "static/region_median_chart.png"
+        plt.savefig(chart_path)
+        plt.close()
+        logger.info(f"Region median chart generated at {chart_path}")
+    except Exception as e:
+        logger.error(f"Failed to generate chart: {str(e)}", exc_info=True)
+        chart_path = "static/region_median_chart.png"
+        plt.figure(figsize=(12, 6))
+        plt.title("Chart Generation Failed")
+        plt.savefig(chart_path)
+        plt.close()
     sys.stdout.flush()
     return chart_path
 
@@ -276,8 +301,11 @@ def startup_tasks():
     sys.stdout.flush()
     load_property_data()
     if df is not None and not df.empty:
+        logger.info("Data loaded, generating charts...")
         generate_heatmap()
         generate_region_median_chart()
+    else:
+        logger.warning("No data loaded, skipping chart generation")
     with open("/tmp/startup_complete.flag", "w") as f:
         f.write("done")
     logger.info("Startup tasks completed")
