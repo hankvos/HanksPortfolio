@@ -21,10 +21,11 @@ from folium.plugins import MarkerCluster
 
 app = Flask(__name__)
 
-# Configure logging
+# Configure logging with immediate flushing
 logger = logging.getLogger(__name__)
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(logging.Formatter('%(levelname)s:%(name)s:%(message)s'))
+handler.setStream(sys.stdout)  # Ensure stdout is unbuffered
 logger.handlers = [handler]
 logger.setLevel(logging.INFO)
 
@@ -56,8 +57,8 @@ df = None
 data_loaded = False
 last_health_status = None
 NATIONAL_MEDIAN = None
-startup_complete = False
-lock = threading.Lock()  # Added for thread safety
+startup_event = threading.Event()  # Replace startup_complete with Event
+lock = threading.Lock()
 
 @app.template_filter('currency')
 def currency_filter(value):
@@ -165,6 +166,7 @@ def load_property_data():
 def generate_heatmap():
     with lock:
         df_local = df.copy() if df is not None else load_property_data()
+    logger.info("Generating heatmap...")
     m = folium.Map(zoom_start=6)
     marker_cluster = MarkerCluster().add_to(m)
     coords = df_local[df_local["Price"] < 9_000_000].dropna(subset=["Price"]).sample(min(1000, len(df_local)))
@@ -189,12 +191,15 @@ def generate_heatmap():
         m.fit_bounds([[min(lats), min(lons)], [max(lats), max(lons)]])
     
     heatmap_path = "static/heatmap.html"
+    os.makedirs("static", exist_ok=True)
     m.save(heatmap_path)
+    logger.info(f"Heatmap generated at {heatmap_path}")
     return heatmap_path
 
 def generate_region_median_chart(selected_region=None, selected_postcode=None):
     with lock:
         df_local = df.copy() if df is not None else load_property_data()
+    logger.info("Generating region median chart...")
     if selected_postcode:
         median_data = df_local[df_local["Postcode"] == selected_postcode].groupby('Suburb')['Price'].median().sort_values()
         title = f"Median House Prices by Suburb (Postcode {selected_postcode})"
@@ -222,36 +227,39 @@ def generate_region_median_chart(selected_region=None, selected_postcode=None):
     plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
     chart_path = "static/region_median_chart.png"
+    os.makedirs("static", exist_ok=True)
     plt.savefig(chart_path)
     plt.close()
+    logger.info(f"Region median chart generated at {chart_path}")
     return chart_path
 
 def pre_generate_charts():
     logger.info("Pre-generating charts in background...")
     if not os.path.exists("static/heatmap.html"):
-        heatmap_path = generate_heatmap()
-        logger.info(f"Generated heatmap at {heatmap_path}")
+        generate_heatmap()
     if not os.path.exists("static/region_median_chart.png"):
-        region_median_chart_path = generate_region_median_chart()
-        logger.info(f"Generated region median chart at {region_median_chart_path}")
+        generate_region_median_chart()
 
 def startup_tasks():
-    global startup_complete
     load_property_data()
     pre_generate_charts()
-    with lock:
-        startup_complete = True
+    startup_event.set()  # Signal startup completion
     logger.info("Startup tasks completed")
 
 @app.route('/health')
 def health_check():
     global last_health_status
-    with lock:
-        status = "OK" if startup_complete else "LOADING"
+    status = "OK" if startup_event.is_set() else "LOADING"
     if status != last_health_status:
         logger.info(f"Health status changed to: {status}")
         last_health_status = status
     return status, 200
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    logger.error(f"Unhandled exception: {str(e)}", exc_info=True)
+    sys.stdout.flush()  # Force log output
+    return "An error occurred on the server", 500
 
 @app.route('/', methods=["GET", "POST"])
 def index():
@@ -260,15 +268,18 @@ def index():
     logger.info("Starting index route")
     log_memory_usage()
     
-    with lock:
-        if not data_loaded:
-            logger.info("Data not yet loaded, showing loading page")
-            return render_template("loading.html")
+    if not startup_event.is_set():
+        logger.info("Data not yet loaded, showing loading page")
+        return render_template("loading.html")
     
     try:
         with lock:
-            df_local = df.copy() if df is not None else load_property_data()
+            if df is None:
+                logger.error("DataFrame is None after startup")
+                raise ValueError("DataFrame not initialized")
+            df_local = df.copy()
         logger.info(f"DataFrame loaded with {len(df_local)} rows")
+        
         unique_postcodes = sorted(df_local["Postcode"].unique())
         unique_suburbs = sorted(df_local["Suburb"].unique())
         
@@ -283,6 +294,7 @@ def index():
         display_postcode = selected_postcode if selected_region else ""
         display_suburb = selected_suburb if selected_region and selected_postcode else ""
         
+        logger.info("Generating chart...")
         chart_path = generate_region_median_chart(selected_region, selected_postcode)
         
         filtered_df = df_local.copy()
@@ -332,10 +344,12 @@ def index():
         elapsed_time = time.time() - start_time
         logger.info(f"Index route completed in {elapsed_time:.2f} seconds")
         log_memory_usage()
+        sys.stdout.flush()  # Ensure logs are written
         return response
     except Exception as e:
         logger.error(f"Error in index route: {str(e)}", exc_info=True)
-        return "An error occurred on the server", 500
+        sys.stdout.flush()
+        raise
 
 @app.route('/hot_suburbs', methods=["GET", "POST"])
 def hot_suburbs():
@@ -344,10 +358,9 @@ def hot_suburbs():
     logger.info("Starting hot_suburbs route")
     log_memory_usage()
     
-    with lock:
-        if not data_loaded:
-            logger.info("Data not yet loaded, showing loading page")
-            return render_template("loading.html")
+    if not startup_event.is_set():
+        logger.info("Data not yet loaded, showing loading page")
+        return render_template("loading.html")
     
     try:
         with lock:
@@ -385,30 +398,32 @@ def hot_suburbs():
         elapsed_time = time.time() - start_time
         logger.info(f"Hot_suburbs route completed in {elapsed_time:.2f} seconds")
         log_memory_usage()
+        sys.stdout.flush()
         return response
     except Exception as e:
         logger.error(f"Error in hot_suburbs route: {str(e)}", exc_info=True)
-        return "An error occurred on the server", 500
+        sys.stdout.flush()
+        raise
 
 @app.route('/get_postcodes')
 def get_postcodes():
     try:
-        with lock:
-            if not data_loaded:
-                return jsonify({"error": "Data still loading"}), 503
+        if not startup_event.is_set():
+            return jsonify({"error": "Data still loading"}), 503
         region = request.args.get('region')
         postcodes = REGION_POSTCODE_LIST.get(region, [])
         return jsonify(postcodes)
     except Exception as e:
         logger.error(f"Error in get_postcodes: {str(e)}", exc_info=True)
-        return jsonify({"error": "Server error"}), 500
+        sys.stdout.flush()
+        raise
 
 @app.route('/get_suburbs')
 def get_suburbs():
     try:
+        if not startup_event.is_set():
+            return jsonify({"error": "Data still loading"}), 503
         with lock:
-            if not data_loaded:
-                return jsonify({"error": "Data still loading"}), 503
             df_local = df.copy() if df is not None else load_property_data()
         region = request.args.get('region')
         postcode = request.args.get('postcode')
@@ -419,7 +434,8 @@ def get_suburbs():
         return jsonify(suburbs)
     except Exception as e:
         logger.error(f"Error in get_suburbs: {str(e)}", exc_info=True)
-        return jsonify({"error": "Server error"}), 500
+        sys.stdout.flush()
+        raise
 
 @app.route('/static/<path:filename>')
 def static_files(filename):
@@ -427,7 +443,8 @@ def static_files(filename):
         return send_from_directory(app.static_folder, filename)
     except Exception as e:
         logger.error(f"Error serving static file {filename}: {str(e)}", exc_info=True)
-        return "Static file not found", 404
+        sys.stdout.flush()
+        raise
 
 # Start background loading
 logger.info("Starting background data load...")
@@ -443,3 +460,4 @@ else:
     port = int(os.environ.get("PORT", 10000))
     logger.info(f"Starting gunicorn on port {port} with 1 worker")
     os.environ["GUNICORN_CMD_ARGS"] = f"--bind 0.0.0.0:{port} --workers 1 --timeout 120"
+    sys.stdout.flush()
