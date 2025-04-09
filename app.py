@@ -33,7 +33,8 @@ REGION_POSTCODE_LIST = {
     "Coffs Harbour - Grafton": ["2370", "2450", "2456", "2460", "2462", "2463", "2464", "2465", "2466", "2469", "2441", "2448", "2449", "2450", "2452", "2453", "2454", "2455", "2456", "2460"],
     "Hunter Valley excl Newcastle": ["2250", "2311", "2320", "2321", "2322", "2323", "2325", "2326", "2327", "2330", "2331", "2334", "2335", "2420", "2421", "2314", "2315", "2316", "2317", "2318", "2319", "2324", "2328", "2329", "2333", "2336", "2337", "2338", "2850"],
     "Mid North Coast": ["2312", "2324", "2415", "2420", "2422", "2423", "2425", "2428", "2429", "2430", "2431", "2440", "2441", "2447", "2448", "2449", "2898", "2439", "2443", "2444", "2445", "2446", "2424", "2426", "2427"],
-    "Newcastle and Lake Macquarie": ["2259", "2264", "2265", "2267", "2278", "2280", "2281", "2282", "2283", "2284", "2285", "2286", "2287", "2289", "2290", "2291", "2292", "2293", "2294", "2295", "2296", "2297", "2298", "2299", "2300", "2302", "2303", "2304", "2305", "2306", "2307", "2308", "2318", "2322", "2323"]
+    "Newcastle and Lake Macquarie": ["2259", "2264", "2265", "2267", "2278", "2280", "2281", "2282", "2283", "2284", "2285", "2286", "2287", "2289", "2290", "2291", "2292", "2293", "2294", "2295", "2296", "2297", "2298", "2299", "2300", "2302", "2303", "2304", "2305", "2306", "2307", "2308", "2318", "2322", "2323"],
+    "Richmond - Tweed": ["2469", "2470", "2471", "2472", "2473", "2474", "2475", "2476", "2477", "2478", "2479", "2480", "2481", "2482", "2483", "2484", "2485", "2486", "2487", "2488", "2489", "2490"]
 }
 ALLOWED_POSTCODES = {pc for region in REGION_POSTCODE_LIST.values() for pc in region}
 POSTCODE_COORDS = {
@@ -66,7 +67,7 @@ SUBURB_COORDS = {
 # Global variables
 df = None
 data_loaded = False
-NATIONAL_MEDIAN = None
+MEDIAN_ALL_REGIONS = None  # Renamed from NATIONAL_MEDIAN
 lock = threading.Lock()
 
 @app.template_filter('currency')
@@ -82,7 +83,7 @@ def log_memory_usage():
     sys.stdout.flush()
 
 def load_property_data():
-    global df, data_loaded, NATIONAL_MEDIAN
+    global df, data_loaded, MEDIAN_ALL_REGIONS
     with lock:
         if data_loaded:
             logger.info("Data already loaded, skipping reload")
@@ -188,8 +189,8 @@ def load_property_data():
             logger.warning("No valid data processed from 2025.zip")
             sys.stdout.flush()
         else:
-            NATIONAL_MEDIAN = result_df["Price"].median()
-            logger.info(f"National median price calculated: ${NATIONAL_MEDIAN:,.0f}")
+            MEDIAN_ALL_REGIONS = result_df["Price"].median()
+            logger.info(f"Median Price (all regions) calculated: ${MEDIAN_ALL_REGIONS:,.0f}")
             logger.info(f"Processed {len(result_df)} records from {zip_file}")
             sys.stdout.flush()
         
@@ -345,12 +346,16 @@ def index():
         if request.method == "POST":
             selected_region = request.form.get("region", "")
             selected_postcode = request.form.get("postcode", "")
+            # Reset suburb to empty string when region or postcode changes via POST
             selected_suburb = request.form.get("suburb", "")
+            if "region" in request.form or "postcode" in request.form:
+                selected_suburb = ""  # Reset to "All Suburbs"
             selected_property_type = request.form.get("property_type", "HOUSE")
             sort_by = request.form.get("sort_by", "Street")
         else:  # GET request, e.g., from hot_suburbs link
             selected_region = request.args.get("region", "")
             selected_postcode = request.args.get("postcode", "")
+            # Reset suburb to empty string unless explicitly provided in GET
             selected_suburb = request.args.get("suburb", "")
             selected_property_type = request.args.get("property_type", "HOUSE")
             sort_by = request.args.get("sort_by", "Street")
@@ -424,7 +429,7 @@ def index():
                                   region_median_chart_path=region_median_chart_path,
                                   properties=properties,
                                   median_price=median_price,
-                                  national_median=NATIONAL_MEDIAN,
+                                  median_all_regions=MEDIAN_ALL_REGIONS,  # Updated variable name
                                   display_suburb=selected_suburb if selected_suburb else None)
         logger.info("RENDERING: Completed")
         sys.stdout.flush()
@@ -450,20 +455,20 @@ def hot_suburbs():
         logger.info(f"DATAFRAME: Copied {len(df_local)} rows")
         sys.stdout.flush()
         
-        if df_local.empty or NATIONAL_MEDIAN is None:
-            logger.warning("No data or national median available for hot suburbs")
+        if df_local.empty or MEDIAN_ALL_REGIONS is None:
+            logger.warning("No data or Median Price (all regions) available for hot suburbs")
             sys.stdout.flush()
             return render_template("hot_suburbs.html", 
                                  data_source="NSW Valuer General Data",
                                  hot_suburbs=[],
                                  total_suburbs=0,
-                                 national_median=NATIONAL_MEDIAN,
+                                 median_all_regions=MEDIAN_ALL_REGIONS,
                                  sort_by="Median Price (House)")
         
         # Filter for HOUSE only before calculating median
         house_df = df_local[df_local["Property Type"] == "HOUSE"]
         suburb_medians = house_df.groupby(["Suburb", "Postcode"])["Price"].median().reset_index()
-        hot_suburbs_df = suburb_medians[suburb_medians["Price"] < NATIONAL_MEDIAN].copy()
+        hot_suburbs_df = suburb_medians[suburb_medians["Price"] < MEDIAN_ALL_REGIONS].copy()
         postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
         hot_suburbs_df["Region"] = hot_suburbs_df["Postcode"].map(postcode_to_region).fillna("Unknown")
         total_suburbs = len(house_df.groupby(["Suburb", "Postcode"]))  # Total unique suburb-postcode pairs for HOUSE
@@ -488,14 +493,14 @@ def hot_suburbs():
             for _, row in hot_suburbs_df.iterrows()
         ]
         
-        logger.info(f"HOT SUBURBS: Found {len(hot_suburbs)} suburbs below national median for HOUSE")
+        logger.info(f"HOT SUBURBS: Found {len(hot_suburbs)} suburbs below Median (all regions) for HOUSE")
         sys.stdout.flush()
         
         return render_template("hot_suburbs.html",
                              data_source="NSW Valuer General Data",
                              hot_suburbs=hot_suburbs,
                              total_suburbs=total_suburbs,
-                             national_median=NATIONAL_MEDIAN,
+                             median_all_regions=MEDIAN_ALL_REGIONS,  # Updated variable name
                              sort_by=sort_by)
     
     except Exception as e:
@@ -503,16 +508,24 @@ def hot_suburbs():
         sys.stdout.flush()
         return "Internal Server Error", 500
 
-if __name__ == "__main__":
+def run_app():
     if not os.path.exists("static"):
         os.makedirs("static")
-    threading.Thread(target=startup_tasks, daemon=True).start()
+    startup_tasks()  # Run synchronously to ensure data is loaded before server starts
     port = int(os.environ.get("PORT", 10000))
+    logger.info(f"Starting Flask server on 0.0.0.0:{port}")
+    sys.stdout.flush()
     app.run(host="0.0.0.0", port=port, debug=False)
+
+if __name__ == "__main__":
+    run_app()
 else:
     gunicorn_logger = logging.getLogger("gunicorn.error")
     app.logger.handlers = gunicorn_logger.handlers
     app.logger.setLevel(gunicorn_logger.level)
     if not os.path.exists("static"):
         os.makedirs("static")
-    threading.Thread(target=startup_tasks, daemon=True).start()
+    if not data_loaded:  # Ensure startup runs only once
+        startup_tasks()
+    logger.info("Gunicorn environment detected, startup tasks completed")
+    sys.stdout.flush()

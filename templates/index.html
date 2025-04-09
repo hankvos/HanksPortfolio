@@ -2,108 +2,93 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Property Sales Dashboard</title>
+    <title>NSW Property Analyser</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='1.3') }}">
     <script>
-        function resetFilters(selectElement) {
-            if (selectElement.name === "region" && selectElement.value === "") {
-                document.getElementById("postcode").selectedIndex = 0;
-                document.getElementById("suburb").selectedIndex = 0;
-                selectElement.form.submit();
-            } else if (selectElement.name === "postcode" && selectElement.value === "") {
-                document.getElementById("suburb").selectedIndex = 0;
-                selectElement.form.submit();
-            } else {
-                selectElement.form.submit();
-            }
+        function updateDropdowns() {
+            document.getElementById("search-form").submit();
         }
     </script>
 </head>
 <body>
     <div class="data-source">{{ data_source }}</div>
     <div class="container">
-        <div class="left-column">
-            <h1>Property Sales Dashboard</h1>
-            {% if heatmap_path %}
-            <iframe src="{{ url_for('static', filename='heatmap.html') }}" width="100%" height="300"></iframe>
-            {% endif %}
-            <form method="POST" action="/">
-                <label for="region">Region:</label>
-                <select name="region" id="region" onchange="resetFilters(this)">
-                    <option value="">All Regions</option>
-                    {% for region in regions %}
-                    <option value="{{ region }}" {% if region == selected_region %}selected{% endif %}>{{ region }}</option>
-                    {% endfor %}
-                </select>
-                <label for="postcode">Postcode:</label>
-                <select name="postcode" id="postcode" onchange="resetFilters(this)">
-                    <option value="">All Postcodes</option>
-                    {% for postcode in postcodes %}
-                    <option value="{{ postcode }}" {% if postcode == selected_postcode %}selected{% endif %}>{{ postcode }}</option>
-                    {% endfor %}
-                </select>
-                <label for="suburb">Suburb:</label>
-                <select name="suburb" id="suburb" onchange="this.form.submit()">
-                    <option value="">All Suburbs</option>
-                    {% for suburb in suburbs %}
-                    <option value="{{ suburb }}" {% if suburb == selected_suburb %}selected{% endif %}>{{ suburb }}</option>
-                    {% endfor %}
-                </select>
-                <label for="property_type">Property Type:</label>
-                <select name="property_type" id="property_type" onchange="this.form.submit()">
-                    {% for type in property_types %}
-                    <option value="{{ type }}" {% if type == selected_property_type %}selected{% endif %}>{{ type }}</option>
-                    {% endfor %}
-                </select>
-                <label for="sort_by">Sort By:</label>
-                <select name="sort_by" id="sort_by" onchange="this.form.submit()">
-                    <option value="Street" {% if sort_by == "Street" %}selected{% endif %}>Street</option>
-                    <option value="Settlement Date" {% if sort_by == "Settlement Date" %}selected{% endif %}>Settlement Date</option>
-                    <option value="Price" {% if sort_by == "Price" %}selected{% endif %}>Price</option>
-                </select>
-            </form>
-            <a href="/hot_suburbs" class="button">View Hot Suburbs</a>
-        </div>
-        <div class="right-column">
-            {% if region_median_chart_path %}
-            <div class="chart-container">
-                <img src="{{ url_for('static', filename='region_median_chart.png') }}" alt="Median House Prices" class="region-chart">
-            </div>
-            {% endif %}
-            <p>National Median Price: ${{ "{:,.0f}".format(national_median) }}</p>
-            <div class="properties-container">
-                {% if properties and selected_region %}
-                <h2>
-                    Properties (Median: {{ median_price | currency }})
-                    {% if selected_suburb %}- {{ selected_suburb }}{% endif %}
-                    {% if selected_postcode and not selected_suburb %}- Postcode {{ selected_postcode }}{% endif %}
-                    {% if selected_region and not selected_postcode %}- {{ selected_region }}{% endif %}
-                </h2>
-                <table>
-                    <tr>
-                        <th>Street</th>
-                        <th>Block Size (sqm)</th>
-                        <th>Property Type</th>
-                        <th>Settlement Date</th>
-                        <th>Price</th>
-                        <th>Map</th>
-                    </tr>
-                    {% for property in properties %}
-                    <tr>
-                        <td>{{ property.Street }}</td>
-                        <td>{{ property["Block Size"] }}</td>
-                        <td>{{ property["Property Type"] }}</td>
-                        <td>{{ property["Settlement Date Str"] }}</td>
-                        <td>{{ property.Price | currency }}</td>
-                        <td><a href="https://www.google.com/maps/place/{{ property.Street | urlencode }},+{{ property.Suburb | urlencode }}+NSW+{{ property.Postcode }}" target="_blank">View</a></td>
-                    </tr>
-                    {% endfor %}
-                </table>
-                {% elif selected_region %}
-                <p>No properties found for the selected filters.</p>
-                {% endif %}
-            </div>
-        </div>
+        <h1>NSW Property Analyser</h1>
+        <a href="/hot_suburbs" class="button">Hot Suburbs</a>
+        <form id="search-form" method="POST" action="/">
+            <label for="region">Region:</label>
+            <select name="region" id="region" onchange="updateDropdowns()">
+                <option value="">All Regions</option>
+                {% for region in regions %}
+                <option value="{{ region }}" {% if region == selected_region %}selected{% endif %}>{{ region }}</option>
+                {% endfor %}
+            </select>
+            
+            <label for="postcode">Postcode:</label>
+            <select name="postcode" id="postcode" onchange="updateDropdowns()">
+                <option value="">All Postcodes</option>
+                {% for postcode in postcodes %}
+                <option value="{{ postcode }}" {% if postcode == selected_postcode %}selected{% endif %}>{{ postcode }}</option>
+                {% endfor %}
+            </select>
+            
+            <label for="suburb">Suburb:</label>
+            <select name="suburb" id="suburb" onchange="this.form.submit()">
+                <option value="">All Suburbs</option>
+                {% for suburb in suburbs %}
+                <option value="{{ suburb }}" {% if suburb == selected_suburb %}selected{% endif %}>{{ suburb }}</option>
+                {% endfor %}
+            </select>
+            
+            <label for="property_type">Property Type:</label>
+            <select name="property_type" id="property_type" onchange="this.form.submit()">
+                {% for type in property_types %}
+                <option value="{{ type }}" {% if type == selected_property_type %}selected{% endif %}>{{ type }}</option>
+                {% endfor %}
+            </select>
+            
+            <label for="sort_by">Sort By:</label>
+            <select name="sort_by" id="sort_by" onchange="this.form.submit()">
+                <option value="Street" {% if sort_by == "Street" %}selected{% endif %}>Street</option>
+                <option value="Settlement Date" {% if sort_by == "Settlement Date" %}selected{% endif %}>Settlement Date</option>
+                <option value="Price" {% if sort_by == "Price" %}selected{% endif %}>Price</option>
+            </select>
+        </form>
+        
+        {% if heatmap_path %}
+        <h2>Property Heatmap</h2>
+        <iframe src="{{ url_for('static', filename='heatmap.html') }}" width="100%" height="500"></iframe>
+        {% endif %}
+        
+        {% if region_median_chart_path %}
+        <h2>Median Price Chart</h2>
+        <img src="{{ url_for('static', filename='region_median_chart.png') }}" alt="Region Median Chart">
+        {% endif %}
+        
+        <h2>Properties ({{ properties|length }} found)</h2>
+        <p>Median Price: {{ median_price | currency }} | Median Price (all regions): {{ median_all_regions | currency }}</p>
+        <table class="property-table">
+            <tr>
+                <th>Street</th>
+                <th>Suburb</th>
+                <th>Postcode</th>
+                <th>Property Type</th>
+                <th>Settlement Date</th>
+                <th>Price</th>
+                <th>Block Size (m²)</th>
+            </tr>
+            {% for property in properties %}
+            <tr>
+                <td>{{ property["Street"] }}</td>
+                <td>{{ property["Suburb"] }}</td>
+                <td>{{ property["Postcode"] }}</td>
+                <td>{{ property["Property Type"] }}</td>
+                <td>{{ property["Settlement Date Str"] }}</td>
+                <td>{{ property["Price"] | currency }}</td>
+                <td>{{ property["Block Size"] | default("N/A") }}</td>
+            </tr>
+            {% endfor %}
+        </table>
     </div>
 </body>
 </html>

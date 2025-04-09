@@ -8,7 +8,7 @@
 <body>
     <div class="data-source">{{ data_source }}</div>
     <div class="container">
-        <h1>Hot Suburbs ({{ hot_suburbs|length }}/{{ total_suburbs }} found, Below National Median: ${{ "{:,.0f}".format(national_median) }})</h1>
+        <h1>Hot Suburbs ({{ hot_suburbs|length }}/{{ total_suburbs }} found, below Median (all regions): ${{ "{:,.0f}".format(median_all_regions) }})</h1>
         <a href="/" class="button">Back to Dashboard</a>
         <form method="POST" action="/hot_suburbs">
             <label for="sort_by">Sort By:</label>
