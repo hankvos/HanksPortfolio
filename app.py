@@ -39,7 +39,9 @@ POSTCODE_COORDS = {
     "2843": [-31.95, 149.43], "2650": [-35.12, 147.35], "2795": [-33.42, 149.58], "2444": [-31.65, 152.79],
     "2000": [-33.87, 151.21], "2261": [-33.30, 151.50], "2450": [-30.30, 153.12], "2320": [-32.73, 151.55],
     "2325": [-32.58, 151.17], "2430": [-31.90, 152.46], "2300": [-32.9283, 151.7817], "2280": [-33.0333, 151.6333],
-    "2285": [-32.9667, 151.6333]  # Added 2325 for Cessnock
+    "2285": [-32.9667, 151.6333],
+    "2011": [-33.88, 151.22],  # Added for Potts Point / Elizabeth Bay
+    "2018": [-33.92, 151.20]   # Added for Rosebery
 }
 REGION_CENTERS = {}
 for region_name, postcodes in REGION_POSTCODE_LIST.items():
@@ -58,7 +60,9 @@ SUBURB_COORDS = {
     "2580": {"GOULBURN": [-34.75, 149.72]}, "2843": {"COOLAH": [-31.82, 149.72]},
     "2650": {"WAGGA WAGGA": [-35.12, 147.35]}, "2795": {"BATHURST": [-33.42, 149.58]},
     "2444": {"THRUMSTER": [-31.47, 152.83]}, "2000": {"SYDNEY": [-33.87, 151.21]},
-    "2325": {"CESSNOCK": [-32.83, 151.35]}  # Added Cessnock
+    "2325": {"CESSNOCK": [-32.83, 151.35]},
+    "2011": {"POTTS POINT": [-33.87, 151.22], "ELIZABETH BAY": [-33.87, 151.23]},  # Added
+    "2018": {"ROSEBERY": [-33.92, 151.20]}  # Added
 }
 
 def is_startup_complete():
@@ -183,18 +187,17 @@ def parse_dat_file(dat_content):
         for line in lines:
             if line.startswith('B'):
                 fields = line.split(';')
-                logger.info(f"Raw DAT line: {line}")  # Log raw line for debugging
+                logger.info(f"Raw DAT line: {line}")
                 if len(fields) >= 19:
                     try:
                         record = {
-                            "Postcode": fields[10].strip(),  # Corrected to field 10
-                            "Suburb": fields[9].strip().upper(),  # Corrected to field 9
-                            "Price": int(float(fields[15].strip() or 0)),  # Field 15 is correct
-                            "Settlement Date": fields[14].strip(),  # Field 14 is correct
-                            "Street": f"{fields[7].strip()} {fields[8].strip()}".strip() if fields[7].strip() else fields[8].strip(),  # Fields 7+8 correct
-                            "Property Type": "RESIDENCE" if fields[17].strip() == "R" else "VACANT LAND"  # Field 17 correct
+                            "Postcode": fields[10].strip(),
+                            "Suburb": fields[9].strip().upper(),
+                            "Price": int(float(fields[15].strip() or 0)),
+                            "Settlement Date": fields[14].strip(),
+                            "Street": f"{fields[7].strip()} {fields[8].strip()}".strip() if fields[7].strip() else fields[8].strip(),
+                            "Property Type": "RESIDENCE" if fields[17].strip() == "R" else "VACANT LAND"
                         }
-                        # Validate postcode
                         if not (record["Postcode"].isdigit() and len(record["Postcode"]) == 4):
                             logger.warning(f"Invalid postcode: {record['Postcode']} in line: {line}")
                             continue
@@ -271,13 +274,17 @@ def startup_tasks():
                     df = pd.DataFrame(columns=["Postcode", "Suburb", "Price", "Settlement Date", "Street", "Property Type"])
                 else:
                     df = pd.concat(all_data, ignore_index=True)
-                    logger.info(f"STARTUP: Combined {len(df)} rows")
+                    logger.info(f"STARTUP: Combined {len(df)} rows before filtering")
                     sys.stdout.flush()
+                    
+                    # Filter to only allowed postcodes
+                    df = df[df["Postcode"].isin(ALLOWED_POSTCODES)]
+                    logger.info(f"STARTUP: Filtered to {len(df)} rows within specified regions")
                     
                     df["Settlement Date"] = pd.to_datetime(df["Settlement Date"], format='%Y%m%d')
                     df["Settlement Date Str"] = df["Settlement Date"].dt.strftime('%Y-%m-%d')
                     df["StreetOnly"] = df["Street"].str.extract(r'^\d*\s*(.*)$', expand=False)
-                    MEDIAN_ALL_REGIONS = df["Price"].median()
+                    MEDIAN_ALL_REGIONS = df["Price"].median() if not df.empty else 0
         
         logger.info(f"STARTUP: Data loaded: {len(df)} rows")
         sys.stdout.flush()
@@ -381,7 +388,7 @@ def index():
         heatmap_path = "static/heatmap.html" if os.path.exists("static/heatmap.html") else None
         region_median_chart_path = "static/region_median_chart.png" if os.path.exists("static/region_median_chart.png") else None
         
-        logger.info("RENDERING: Starting index.html render")
+ ACTIONS       logger.info("RENDERING: Starting index.html render")
         sys.stdout.flush()
         response = render_template("index.html",
                                   data_source="NSW Valuer General Data",
@@ -428,21 +435,17 @@ def hot_suburbs():
         logger.warning("No data for hot suburbs")
         return render_template("hot_suburbs.html", data_source="NSW Valuer General Data", hot_suburbs=[], total_suburbs=0, median_all_regions=0, sort_by=sort_by)
     
-    # Calculate median prices per suburb
     suburb_medians = df_local[df_local["Property Type"] == "RESIDENCE"].groupby(["Suburb", "Postcode"])["Price"].median().reset_index()
     postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
     suburb_medians["Region"] = suburb_medians["Postcode"].map(postcode_to_region)
     
-    # Filter hot suburbs (below overall median)
     hot_suburbs_df = suburb_medians[suburb_medians["Price"] < MEDIAN_ALL_REGIONS].dropna()
     
-    # Sort
     if sort_by == "Median Price (House)":
         hot_suburbs_df = hot_suburbs_df.sort_values("Price")
     else:
         hot_suburbs_df = hot_suburbs_df.sort_values("Suburb")
     
-    # Convert to list of dicts
     hot_suburbs = [
         {"suburb": row["Suburb"], "postcode": row["Postcode"], "region": row["Region"], "median_price": row["Price"]}
         for _, row in hot_suburbs_df.iterrows()
@@ -469,4 +472,5 @@ sys.stdout.flush()
 if __name__ == "__main__":
     logger.info("Starting Flask app...")
     sys.stdout.flush()
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+    port = int(os.getenv("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
