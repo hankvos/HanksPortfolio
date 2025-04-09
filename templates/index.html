@@ -66,7 +66,7 @@
             {% if region_median_chart_path %}
             <div class="chart-container">
                 <h2>Median Price Chart</h2>
-                <img src="{{ url_for('static', filename='region_median_chart.png') }}?{{ 'now'|datetime|timestamp }}" class="region-chart" alt="Region Median Chart">
+                <img src="{{ url_for('static', filename='region_median_chart.png') }}?{{ now_timestamp }}" class="region-chart" alt="Region Median Chart">
             </div>
             {% endif %}
 
