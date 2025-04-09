@@ -38,8 +38,8 @@ POSTCODE_COORDS = {
     "2408": [-29.05, 148.77], "2460": [-29.68, 152.93], "2582": [-34.98, 149.23], "2580": [-34.57, 148.93],
     "2843": [-31.95, 149.43], "2650": [-35.12, 147.35], "2795": [-33.42, 149.58], "2444": [-31.65, 152.79],
     "2000": [-33.87, 151.21], "2261": [-33.30, 151.50], "2450": [-30.30, 153.12], "2320": [-32.73, 151.55],
-    "2330": [-32.58, 151.17], "2430": [-31.90, 152.46], "2300": [-32.9283, 151.7817], "2280": [-33.0333, 151.6333],
-    "2285": [-32.9667, 151.6333]
+    "2325": [-32.58, 151.17], "2430": [-31.90, 152.46], "2300": [-32.9283, 151.7817], "2280": [-33.0333, 151.6333],
+    "2285": [-32.9667, 151.6333]  # Added 2325 for Cessnock
 }
 REGION_CENTERS = {}
 for region_name, postcodes in REGION_POSTCODE_LIST.items():
@@ -57,7 +57,8 @@ SUBURB_COORDS = {
     "2460": {"COOMBADJHA": [-29.03, 152.38]}, "2582": {"YASS": [-34.84, 148.91]},
     "2580": {"GOULBURN": [-34.75, 149.72]}, "2843": {"COOLAH": [-31.82, 149.72]},
     "2650": {"WAGGA WAGGA": [-35.12, 147.35]}, "2795": {"BATHURST": [-33.42, 149.58]},
-    "2444": {"THRUMSTER": [-31.47, 152.83]}, "2000": {"SYDNEY": [-33.87, 151.21]}
+    "2444": {"THRUMSTER": [-31.47, 152.83]}, "2000": {"SYDNEY": [-33.87, 151.21]},
+    "2325": {"CESSNOCK": [-32.83, 151.35]}  # Added Cessnock
 }
 
 def is_startup_complete():
@@ -182,20 +183,31 @@ def parse_dat_file(dat_content):
         for line in lines:
             if line.startswith('B'):
                 fields = line.split(';')
+                logger.info(f"Raw DAT line: {line}")  # Log raw line for debugging
                 if len(fields) >= 19:
-                    record = {
-                        "Postcode": fields[11],
-                        "Suburb": fields[10],
-                        "Price": int(fields[15]),
-                        "Settlement Date": fields[14],
-                        "Street": f"{fields[7]} {fields[8]}" if fields[7] else fields[8],
-                        "Property Type": "RESIDENCE" if fields[17] == "R" else "VACANT LAND"
-                    }
-                    data.append(record)
+                    try:
+                        record = {
+                            "Postcode": fields[10].strip(),  # Corrected to field 10
+                            "Suburb": fields[9].strip().upper(),  # Corrected to field 9
+                            "Price": int(float(fields[15].strip() or 0)),  # Field 15 is correct
+                            "Settlement Date": fields[14].strip(),  # Field 14 is correct
+                            "Street": f"{fields[7].strip()} {fields[8].strip()}".strip() if fields[7].strip() else fields[8].strip(),  # Fields 7+8 correct
+                            "Property Type": "RESIDENCE" if fields[17].strip() == "R" else "VACANT LAND"  # Field 17 correct
+                        }
+                        # Validate postcode
+                        if not (record["Postcode"].isdigit() and len(record["Postcode"]) == 4):
+                            logger.warning(f"Invalid postcode: {record['Postcode']} in line: {line}")
+                            continue
+                        data.append(record)
+                    except (ValueError, IndexError) as e:
+                        logger.error(f"Error parsing line: {line} - {str(e)}")
+                        continue
         if not data:
             logger.warning("No valid B records found in .DAT file")
             return pd.DataFrame(columns=["Postcode", "Suburb", "Price", "Settlement Date", "Street", "Property Type"])
-        return pd.DataFrame(data)
+        df = pd.DataFrame(data)
+        logger.info(f"Parsed {len(df)} valid records")
+        return df
     except Exception as e:
         logger.error(f"Failed to parse .DAT file: {str(e)}", exc_info=True)
         return pd.DataFrame(columns=["Postcode", "Suburb", "Price", "Settlement Date", "Street", "Property Type"])
@@ -207,7 +219,7 @@ def startup_tasks():
     
     try:
         with lock:
-            zip_path = "2025.zip"  # Corrected to match your repo
+            zip_path = "2025.zip"
             logger.info(f"STARTUP: Checking directory: {os.getcwd()}")
             logger.info(f"STARTUP: Files present: {os.listdir('.')}")
             logger.info(f"STARTUP: Looking for {zip_path}")
@@ -280,7 +292,7 @@ def startup_tasks():
         logger.error(f"STARTUP: Failed: {str(e)}", exc_info=True)
         sys.stdout.flush()
         df = pd.DataFrame(columns=["Postcode", "Suburb", "Price", "Settlement Date", "Street", "Property Type"])
-        startup_complete = True  # Force completion to avoid infinite loading
+        startup_complete = True
 
 @app.route('/health')
 def health_check():
@@ -396,6 +408,51 @@ def index():
         logger.error(f"ERROR: {str(e)}", exc_info=True)
         sys.stdout.flush()
         return "Internal Server Error", 500
+
+@app.route('/hot_suburbs', methods=["GET", "POST"])
+def hot_suburbs():
+    logger.info("START: Request received for /hot_suburbs")
+    sys.stdout.flush()
+    
+    if not is_startup_complete():
+        logger.info("STARTUP INCOMPLETE: Returning loading.html")
+        sys.stdout.flush()
+        return render_template("loading.html")
+    
+    with lock:
+        df_local = df.copy() if df is not None else pd.DataFrame()
+    
+    sort_by = request.form.get("sort_by", "Suburb") if request.method == "POST" else "Suburb"
+    
+    if df_local.empty:
+        logger.warning("No data for hot suburbs")
+        return render_template("hot_suburbs.html", data_source="NSW Valuer General Data", hot_suburbs=[], total_suburbs=0, median_all_regions=0, sort_by=sort_by)
+    
+    # Calculate median prices per suburb
+    suburb_medians = df_local[df_local["Property Type"] == "RESIDENCE"].groupby(["Suburb", "Postcode"])["Price"].median().reset_index()
+    postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
+    suburb_medians["Region"] = suburb_medians["Postcode"].map(postcode_to_region)
+    
+    # Filter hot suburbs (below overall median)
+    hot_suburbs_df = suburb_medians[suburb_medians["Price"] < MEDIAN_ALL_REGIONS].dropna()
+    
+    # Sort
+    if sort_by == "Median Price (House)":
+        hot_suburbs_df = hot_suburbs_df.sort_values("Price")
+    else:
+        hot_suburbs_df = hot_suburbs_df.sort_values("Suburb")
+    
+    # Convert to list of dicts
+    hot_suburbs = [
+        {"suburb": row["Suburb"], "postcode": row["Postcode"], "region": row["Region"], "median_price": row["Price"]}
+        for _, row in hot_suburbs_df.iterrows()
+    ]
+    
+    total_suburbs = len(suburb_medians)
+    
+    logger.info(f"RENDERING: Hot suburbs - {len(hot_suburbs)} found")
+    sys.stdout.flush()
+    return render_template("hot_suburbs.html", data_source="NSW Valuer General Data", hot_suburbs=hot_suburbs, total_suburbs=total_suburbs, median_all_regions=MEDIAN_ALL_REGIONS, sort_by=sort_by)
 
 @app.template_filter('currency')
 def currency_filter(value):
