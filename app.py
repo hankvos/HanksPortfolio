@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 # Global variables
-lock = threading.Lock HOLDFORNOW()
+lock = threading.Lock()
 df = None
 MEDIAN_ALL_REGIONS = 0
 startup_complete = False
