@@ -5,11 +5,12 @@ import zipfile
 import re
 from datetime import datetime
 from collections import Counter
-from functools import lru_cache
 import sys
 import time
 import psutil
 import threading
+import multiprocessing
+from functools import wraps
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -25,7 +26,7 @@ app = Flask(__name__)
 logger = logging.getLogger(__name__)
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(logging.Formatter('%(levelname)s:%(name)s:%(message)s'))
-handler.setStream(sys.stdout)  # Ensure stdout is unbuffered
+handler.setStream(sys.stdout)
 logger.handlers = [handler]
 logger.setLevel(logging.INFO)
 
@@ -52,13 +53,12 @@ SUBURB_COORDS = {
     "2443": {"JOHNS RIVER": [-31.73, 152.70]}
 }
 
-# Global variables with thread safety
+# Global variables with process-safe state
 df = None
 data_loaded = False
-last_health_status = None
 NATIONAL_MEDIAN = None
-startup_event = threading.Event()  # Replace startup_complete with Event
 lock = threading.Lock()
+startup_complete_file = "/tmp/startup_complete.flag"  # Process-safe flag
 
 @app.template_filter('currency')
 def currency_filter(value):
@@ -243,32 +243,50 @@ def pre_generate_charts():
 def startup_tasks():
     load_property_data()
     pre_generate_charts()
-    startup_event.set()  # Signal startup completion
+    with open(startup_complete_file, 'w') as f:
+        f.write("1")  # Write flag file
     logger.info("Startup tasks completed")
+
+def is_startup_complete():
+    return os.path.exists(startup_complete_file)
 
 @app.route('/health')
 def health_check():
-    global last_health_status
-    status = "OK" if startup_event.is_set() else "LOADING"
-    if status != last_health_status:
-        logger.info(f"Health status changed to: {status}")
-        last_health_status = status
+    status = "OK" if is_startup_complete() else "LOADING"
+    logger.info(f"Health check: {status}")
     return status, 200
 
 @app.errorhandler(Exception)
 def handle_exception(e):
     logger.error(f"Unhandled exception: {str(e)}", exc_info=True)
-    sys.stdout.flush()  # Force log output
+    sys.stdout.flush()
     return "An error occurred on the server", 500
 
+def timeout_handler(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        try:
+            result = func(*args, **kwargs)
+            elapsed = time.time() - start_time
+            logger.info(f"{func.__name__} completed in {elapsed:.2f} seconds")
+            return result
+        except Exception as e:
+            elapsed = time.time() - start_time
+            logger.error(f"{func.__name__} failed after {elapsed:.2f} seconds: {str(e)}", exc_info=True)
+            sys.stdout.flush()
+            raise
+    return wrapper
+
 @app.route('/', methods=["GET", "POST"])
+@timeout_handler
 def index():
     global NATIONAL_MEDIAN
-    start_time = time.time()
     logger.info("Starting index route")
     log_memory_usage()
+    sys.stdout.flush()
     
-    if not startup_event.is_set():
+    if not is_startup_complete():
         logger.info("Data not yet loaded, showing loading page")
         return render_template("loading.html")
     
@@ -341,10 +359,9 @@ def index():
                                   median_price=median_price,
                                   national_median=NATIONAL_MEDIAN,
                                   display_suburb=selected_suburb if selected_suburb else None)
-        elapsed_time = time.time() - start_time
-        logger.info(f"Index route completed in {elapsed_time:.2f} seconds")
+        logger.info("Index route rendering complete")
         log_memory_usage()
-        sys.stdout.flush()  # Ensure logs are written
+        sys.stdout.flush()
         return response
     except Exception as e:
         logger.error(f"Error in index route: {str(e)}", exc_info=True)
@@ -352,13 +369,13 @@ def index():
         raise
 
 @app.route('/hot_suburbs', methods=["GET", "POST"])
+@timeout_handler
 def hot_suburbs():
     global NATIONAL_MEDIAN
-    start_time = time.time()
     logger.info("Starting hot_suburbs route")
     log_memory_usage()
     
-    if not startup_event.is_set():
+    if not is_startup_complete():
         logger.info("Data not yet loaded, showing loading page")
         return render_template("loading.html")
     
@@ -395,8 +412,7 @@ def hot_suburbs():
                                   hot_suburbs=hot_suburbs,
                                   national_median=NATIONAL_MEDIAN,
                                   sort_by=sort_by)
-        elapsed_time = time.time() - start_time
-        logger.info(f"Hot_suburbs route completed in {elapsed_time:.2f} seconds")
+        logger.info("Hot_suburbs route rendering complete")
         log_memory_usage()
         sys.stdout.flush()
         return response
@@ -408,7 +424,7 @@ def hot_suburbs():
 @app.route('/get_postcodes')
 def get_postcodes():
     try:
-        if not startup_event.is_set():
+        if not is_startup_complete():
             return jsonify({"error": "Data still loading"}), 503
         region = request.args.get('region')
         postcodes = REGION_POSTCODE_LIST.get(region, [])
@@ -421,7 +437,7 @@ def get_postcodes():
 @app.route('/get_suburbs')
 def get_suburbs():
     try:
-        if not startup_event.is_set():
+        if not is_startup_complete():
             return jsonify({"error": "Data still loading"}), 503
         with lock:
             df_local = df.copy() if df is not None else load_property_data()
