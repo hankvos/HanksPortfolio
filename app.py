@@ -40,21 +40,8 @@ POSTCODE_COORDS = {
     "2408": [-29.05, 148.77], "2460": [-29.68, 152.93], "2582": [-34.98, 149.23], "2580": [-34.57, 148.93],
     "2843": [-31.95, 149.43], "2650": [-35.12, 147.35], "2795": [-33.42, 149.58], "2444": [-31.65, 152.79],
     "2000": [-33.87, 151.21],
-    # Central Coast
-    "2261": [-33.30, 151.50],  # Bateau Bay
-    # Coffs Harbour - Grafton
-    "2450": [-30.30, 153.12],  # Coffs Harbour
-    "2460": [-29.68, 152.93],  # Grafton
-    # Hunter Valley excl Newcastle
-    "2320": [-32.73, 151.55],  # Maitland
-    "2330": [-32.58, 151.17],  # Singleton
-    # Mid North Coast
-    "2430": [-31.90, 152.46],  # Taree
-    "2444": [-31.65, 152.79],  # Port Macquarie
-    # Newcastle and Lake Macquarie
-    "2300": [-32.9283, 151.7817],  # Newcastle CBD
-    "2280": [-33.0333, 151.6333],  # Belmont
-    "2285": [-32.9667, 151.6333]   # Cardiff
+    "2261": [-33.30, 151.50], "2450": [-30.30, 153.12], "2320": [-32.73, 151.55], "2330": [-32.58, 151.17],
+    "2430": [-31.90, 152.46], "2300": [-32.9283, 151.7817], "2280": [-33.0333, 151.6333], "2285": [-32.9667, 151.6333]
 }
 REGION_CENTERS = {}
 for region_name, postcodes in REGION_POSTCODE_LIST.items():
@@ -67,18 +54,12 @@ for region_name, postcodes in REGION_POSTCODE_LIST.items():
         ]
 SUBURB_COORDS = {
     "2262": {"BLUE HAVEN": [-33.36, 151.43], "BUDGEWOI": [-33.23, 151.56], "DOYALSON": [-33.20, 151.52], "SAN REMO": [-33.21, 151.51]},
-    "2443": {"JOHNS RIVER": [-31.73, 152.70]},
-    "2621": {"BUNGENDORE": [-35.25, 149.44]},
-    "2217": {"MONTEREY": [-33.97, 151.15]},
-    "2408": {"NORTH STAR": [-28.93, 150.39]},
-    "2460": {"COOMBADJHA": [-29.03, 152.38]},
-    "2582": {"YASS": [-34.84, 148.91]},
-    "2580": {"GOULBURN": [-34.75, 149.72]},
-    "2843": {"COOLAH": [-31.82, 149.72]},
-    "2650": {"WAGGA WAGGA": [-35.12, 147.35]},
-    "2795": {"BATHURST": [-33.42, 149.58]},
-    "2444": {"THRUMSTER": [-31.47, 152.83]},
-    "2000": {"SYDNEY": [-33.87, 151.21]}
+    "2443": {"JOHNS RIVER": [-31.73, 152.70]}, "2621": {"BUNGENDORE": [-35.25, 149.44]},
+    "2217": {"MONTEREY": [-33.97, 151.15]}, "2408": {"NORTH STAR": [-28.93, 150.39]},
+    "2460": {"COOMBADJHA": [-29.03, 152.38]}, "2582": {"YASS": [-34.84, 148.91]},
+    "2580": {"GOULBURN": [-34.75, 149.72]}, "2843": {"COOLAH": [-31.82, 149.72]},
+    "2650": {"WAGGA WAGGA": [-35.12, 147.35]}, "2795": {"BATHURST": [-33.42, 149.58]},
+    "2444": {"THRUMSTER": [-31.47, 152.83]}, "2000": {"SYDNEY": [-33.87, 151.21]}
 }
 
 # Global variables
@@ -189,7 +170,7 @@ def load_property_data():
                                         temp_df["Block Size"] = pd.to_numeric(temp_df["Block Size"], errors='coerce', downcast='float').round(0)
                                         temp_df["Settlement Date"] = pd.to_datetime(temp_df["Settlement Date"], format='%Y%m%d', errors='coerce')
                                         temp_df = temp_df[temp_df["Settlement Date"].dt.year >= 2024]
-                                        temp_df["Settlement Date"] = temp_df["Settlement Date"].dt.strftime('%d/%m/%Y')
+                                        temp_df["Settlement Date Str"] = temp_df["Settlement Date"].dt.strftime('%d/%m/%Y')  # For display
                                         temp_df = temp_df[temp_df["Postcode"].isin(ALLOWED_POSTCODES)]
                                         temp_df["Price"] = temp_df["Price"].clip(lower=10000)
                                         
@@ -388,25 +369,26 @@ def index():
         filtered_df = df_local.copy()
         properties = []
         median_price = 0
-        avg_price = 0
         
-        if selected_region and not selected_postcode and not selected_suburb:
-            filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
-        elif selected_postcode and not selected_suburb:
-            filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
-        elif selected_suburb:
-            filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
-        
-        if selected_property_type != "ALL":
-            filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
-        
-        if not filtered_df.empty:
-            if sort_by == "Street":
-                properties = filtered_df.sort_values(by="StreetOnly").to_dict('records')
-            else:
-                properties = filtered_df.sort_values(by=sort_by).to_dict('records')
-            median_price = filtered_df["Price"].median()
-            avg_price = filtered_df["Price"].mean()
+        if selected_region:  # Only process properties if a region is selected
+            if selected_region and not selected_postcode and not selected_suburb:
+                filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
+            elif selected_postcode and not selected_suburb:
+                filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
+            elif selected_suburb:
+                filtered_df = filtered_df[filtered_df["Suburb"] == selected_suburb]
+            
+            if selected_property_type != "ALL":
+                filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
+            
+            if not filtered_df.empty:
+                if sort_by == "Street":
+                    properties = filtered_df.sort_values(by="StreetOnly").to_dict('records')
+                elif sort_by == "Settlement Date":
+                    properties = filtered_df.sort_values(by="Settlement Date").to_dict('records')  # Use datetime column
+                else:
+                    properties = filtered_df.sort_values(by=sort_by).to_dict('records')
+                median_price = filtered_df["Price"].median()
         
         logger.info(f"FILTERED: {len(properties)} properties")
         sys.stdout.flush()
@@ -431,7 +413,6 @@ def index():
                                   region_median_chart_path=region_median_chart_path,
                                   properties=properties,
                                   median_price=median_price,
-                                  avg_price=avg_price,
                                   national_median=NATIONAL_MEDIAN,
                                   display_suburb=selected_suburb if selected_suburb else None)
         logger.info("RENDERING: Completed")
@@ -467,17 +448,11 @@ def hot_suburbs():
                                  national_median=NATIONAL_MEDIAN,
                                  sort_by="Median Price")
         
-        # Calculate median prices by suburb
         suburb_medians = df_local.groupby(["Suburb", "Postcode"])["Price"].median().reset_index()
-        
-        # Filter for suburbs below national median
         hot_suburbs_df = suburb_medians[suburb_medians["Price"] < NATIONAL_MEDIAN].copy()
-        
-        # Map postcodes to regions
         postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
         hot_suburbs_df["Region"] = hot_suburbs_df["Postcode"].map(postcode_to_region).fillna("Unknown")
         
-        # Handle sorting
         sort_by = request.form.get("sort_by", "Median Price")
         if sort_by == "Suburb":
             hot_suburbs_df = hot_suburbs_df.sort_values("Suburb")
@@ -485,10 +460,9 @@ def hot_suburbs():
             hot_suburbs_df = hot_suburbs_df.sort_values("Postcode")
         elif sort_by == "Region":
             hot_suburbs_df = hot_suburbs_df.sort_values("Region")
-        else:  # Default to Median Price
+        else:
             hot_suburbs_df = hot_suburbs_df.sort_values("Price", ascending=False)
         
-        # Prepare data for template
         hot_suburbs = [
             {
                 "suburb": row["Suburb"],

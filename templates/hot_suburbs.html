@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Hot Suburbs</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='1.2') }}">
 </head>
 <body>
     <div class="data-source">{{ data_source }}</div>
@@ -29,7 +29,7 @@
             {% for suburb in hot_suburbs %}
             <tr>
                 <td>
-                    <a href="{{ url_for('index', region=suburb.region, postcode=suburb.postcode, suburb=suburb.suburb, property_type='HOUSE', sort_by='Street') }}">{{ suburb.suburb }}</a>
+                    <a href="{{ url_for('index', region=suburb.region, postcode=suburb.postcode, suburb=suburb.suburb, property_type=selected_property_type or 'HOUSE', sort_by=sort_by or 'Street') }}">{{ suburb.suburb }}</a>
                 </td>
                 <td>{{ suburb.postcode }}</td>
                 <td>{{ suburb.region }}</td>

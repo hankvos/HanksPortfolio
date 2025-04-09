@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Property Sales Dashboard</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='1.2') }}">
     <script>
         function resetFilters(selectElement) {
             if (selectElement.name === "region" && selectElement.value === "") {
@@ -72,17 +72,12 @@
             {% endif %}
             <p>National Median Price: ${{ "{:,.0f}".format(national_median) }}</p>
             <div class="properties-container">
-                {% if properties %}
+                {% if properties and selected_region %}
                 <h2>
-                    Properties 
-                    {% if selected_region or selected_postcode or selected_suburb %}
-                        (Average: {{ avg_price | currency }}, Median: {{ median_price | currency }}) 
-                        {% if selected_suburb %}- {{ selected_suburb }}{% endif %}
-                        {% if selected_postcode and not selected_suburb %}- Postcode {{ selected_postcode }}{% endif %}
-                        {% if selected_region and not selected_postcode %}- {{ selected_region }}{% endif %}
-                    {% else %}
-                        - All Properties (Average: {{ avg_price | currency }}, Median: {{ median_price | currency }})
-                    {% endif %}
+                    Properties (Median: {{ median_price | currency }})
+                    {% if selected_suburb %}- {{ selected_suburb }}{% endif %}
+                    {% if selected_postcode and not selected_suburb %}- Postcode {{ selected_postcode }}{% endif %}
+                    {% if selected_region and not selected_postcode %}- {{ selected_region }}{% endif %}
                 </h2>
                 <table>
                     <tr>
@@ -97,12 +92,12 @@
                         <td>{{ property.Street }}</td>
                         <td>{{ property["Block Size"] }}</td>
                         <td>{{ property["Property Type"] }}</td>
-                        <td>{{ property["Settlement Date"] }}</td>
+                        <td>{{ property["Settlement Date Str"] }}</td>
                         <td>{{ property.Price | currency }}</td>
                     </tr>
                     {% endfor %}
                 </table>
-                {% else %}
+                {% elif selected_region %}
                 <p>No properties found for the selected filters.</p>
                 {% endif %}
             </div>
