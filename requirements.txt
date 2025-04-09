@@ -6,4 +6,4 @@ scipy==1.13.0
 folium==0.17.0
 gunicorn
 gevent
-psutil>=5.9.8
+psutil==5.9.8
