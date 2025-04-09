@@ -67,7 +67,7 @@ SUBURB_COORDS = {
 # Global variables
 df = None
 data_loaded = False
-MEDIAN_ALL_REGIONS = None  # Renamed from NATIONAL_MEDIAN
+MEDIAN_ALL_REGIONS = None
 lock = threading.Lock()
 
 @app.template_filter('currency')
@@ -225,15 +225,27 @@ def generate_heatmap():
             if not latlon:
                 region = next((r for r, pcs in REGION_POSTCODE_LIST.items() if row["Postcode"] in pcs), None)
                 latlon = REGION_CENTERS.get(region) if region else [-32.5, 152.5]
+            if latlon is None:
+                logger.warning(f"No coordinates for Postcode: {row['Postcode']}, Suburb: {row['Suburb']}")
+                continue  # Skip this entry if latlon is still None
             folium.Marker(
                 location=latlon,
                 popup=f"{row['Street']}, {row['Suburb']} {row['Postcode']} - ${row['Price']:,.0f}"
             ).add_to(marker_cluster)
             all_coords.append(latlon)
         if all_coords:
-            lats = [c[0] for c in all_coords]
-            lons = [c[1] for c in all_coords]
-            m.fit_bounds([[min(lats), min(lons)], [max(lats), max(lons)]])
+            # Filter out any None values that might have slipped through
+            valid_coords = [c for c in all_coords if c is not None]
+            if valid_coords:
+                lats = [c[0] for c in valid_coords]
+                lons = [c[1] for c in valid_coords]
+                m.fit_bounds([[min(lats), min(lons)], [max(lats), max(lons)]])
+            else:
+                logger.warning("No valid coordinates found; using default bounds")
+                m.fit_bounds([[-34.0, 150.0], [-32.0, 154.0]])  # Default NSW bounds
+        else:
+            logger.warning("No coordinates collected; using default location")
+            m.location = [-32.5, 152.5]  # Center of NSW as fallback
     heatmap_path = "static/heatmap.html"
     try:
         m.save(heatmap_path)
@@ -429,7 +441,7 @@ def index():
                                   region_median_chart_path=region_median_chart_path,
                                   properties=properties,
                                   median_price=median_price,
-                                  median_all_regions=MEDIAN_ALL_REGIONS,  # Updated variable name
+                                  median_all_regions=MEDIAN_ALL_REGIONS,
                                   display_suburb=selected_suburb if selected_suburb else None)
         logger.info("RENDERING: Completed")
         sys.stdout.flush()
@@ -471,7 +483,7 @@ def hot_suburbs():
         hot_suburbs_df = suburb_medians[suburb_medians["Price"] < MEDIAN_ALL_REGIONS].copy()
         postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
         hot_suburbs_df["Region"] = hot_suburbs_df["Postcode"].map(postcode_to_region).fillna("Unknown")
-        total_suburbs = len(house_df.groupby(["Suburb", "Postcode"]))  # Total unique suburb-postcode pairs for HOUSE
+        total_suburbs = len(house_df.groupby(["Suburb", "Postcode"]))
         
         sort_by = request.form.get("sort_by", "Median Price (House)")
         if sort_by == "Suburb":
@@ -500,7 +512,7 @@ def hot_suburbs():
                              data_source="NSW Valuer General Data",
                              hot_suburbs=hot_suburbs,
                              total_suburbs=total_suburbs,
-                             median_all_regions=MEDIAN_ALL_REGIONS,  # Updated variable name
+                             median_all_regions=MEDIAN_ALL_REGIONS,
                              sort_by=sort_by)
     
     except Exception as e:
