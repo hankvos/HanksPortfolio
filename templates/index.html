@@ -12,57 +12,57 @@
 </head>
 <body>
     <div class="data-source">{{ data_source }}</div>
+    <h1>NSW Property Analyser</h1>
     <div class="container">
-        <h1>NSW Property Analyser</h1>
-        <a href="/hot_suburbs" class="button">Hot Suburbs</a>
-        <form id="search-form" method="POST" action="/">
-            <label for="region">Region:</label>
-            <select name="region" id="region" onchange="updateDropdowns()">
-                <option value="">All Regions</option>
-                {% for region in regions %}
-                <option value="{{ region }}" {% if region == selected_region %}selected{% endif %}>{{ region }}</option>
-                {% endfor %}
-            </select>
-            
-            <label for="postcode">Postcode:</label>
-            <select name="postcode" id="postcode" onchange="updateDropdowns()">
-                <option value="">All Postcodes</option>
-                {% for postcode in postcodes %}
-                <option value="{{ postcode }}" {% if postcode == selected_postcode %}selected{% endif %}>{{ postcode }}</option>
-                {% endfor %}
-            </select>
-            
-            <label for="suburb">Suburb:</label>
-            <select name="suburb" id="suburb" onchange="this.form.submit()">
-                <option value="">All Suburbs</option>
-                {% for suburb in suburbs %}
-                <option value="{{ suburb }}" {% if suburb == selected_suburb %}selected{% endif %}>{{ suburb }}</option>
-                {% endfor %}
-            </select>
-            
-            <label for="property_type">Property Type:</label>
-            <select name="property_type" id="property_type" onchange="this.form.submit()">
-                {% for type in property_types %}
-                <option value="{{ type }}" {% if type == selected_property_type %}selected{% endif %}>{{ type }}</option>
-                {% endfor %}
-            </select>
-            
-            <label for="sort_by">Sort By:</label>
-            <select name="sort_by" id="sort_by" onchange="this.form.submit()">
-                <option value="Street" {% if sort_by == "Street" %}selected{% endif %}>Street</option>
-                <option value="Settlement Date" {% if sort_by == "Settlement Date" %}selected{% endif %}>Settlement Date</option>
-                <option value="Price" {% if sort_by == "Price" %}selected{% endif %}>Price</option>
-            </select>
-        </form>
+        <div class="column filters-column">
+            <a href="/hot_suburbs" class="button">Hot Suburbs</a>
+            <form id="search-form" method="POST" action="/">
+                <label for="region">Region:</label>
+                <select name="region" id="region" onchange="updateDropdowns()">
+                    <option value="">All Regions</option>
+                    {% for region in regions %}
+                    <option value="{{ region }}" {% if region == selected_region %}selected{% endif %}>{{ region }}</option>
+                    {% endfor %}
+                </select>
+                
+                <label for="postcode">Postcode:</label>
+                <select name="postcode" id="postcode" onchange="updateDropdowns()">
+                    <option value="">All Postcodes</option>
+                    {% for postcode in postcodes %}
+                    <option value="{{ postcode }}" {% if postcode == selected_postcode %}selected{% endif %}>{{ postcode }}</option>
+                    {% endfor %}
+                </select>
+                
+                <label for="suburb">Suburb:</label>
+                <select name="suburb" id="suburb" onchange="this.form.submit()">
+                    <option value="">All Suburbs</option>
+                    {% for suburb in suburbs %}
+                    <option value="{{ suburb }}" {% if suburb == selected_suburb %}selected{% endif %}>{{ suburb }}</option>
+                    {% endfor %}
+                </select>
+                
+                <label for="property_type">Property Type:</label>
+                <select name="property_type" id="property_type" onchange="this.form.submit()">
+                    {% for type in property_types %}
+                    <option value="{{ type }}" {% if type == selected_property_type %}selected{% endif %}>{{ type }}</option>
+                    {% endfor %}
+                </select>
+                
+                <label for="sort_by">Sort By:</label>
+                <select name="sort_by" id="sort_by" onchange="this.form.submit()">
+                    <option value="Street" {% if sort_by == "Street" %}selected{% endif %}>Street</option>
+                    <option value="Settlement Date" {% if sort_by == "Settlement Date" %}selected{% endif %}>Settlement Date</option>
+                    <option value="Price" {% if sort_by == "Price" %}selected{% endif %}>Price</option>
+                </select>
+            </form>
+        </div>
 
-        <div class="left-column">
+        <div class="column content-column">
             {% if heatmap_path %}
             <h2>Property Heatmap</h2>
             <iframe src="{{ url_for('static', filename='heatmap.html') }}" title="Property Heatmap"></iframe>
             {% endif %}
-        </div>
 
-        <div class="right-column">
             {% if region_median_chart_path %}
             <div class="chart-container">
                 <h2>Median Price Chart</h2>

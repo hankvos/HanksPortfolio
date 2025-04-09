@@ -24,20 +24,19 @@ body {
     overflow-x: auto;
 }
 
-.left-column {
+.column {
     flex: 1;
     min-width: 300px;
-    max-width: 400px;
     display: flex;
     flex-direction: column;
 }
 
-.right-column {
-    flex: 2;
-    min-width: 400px;
-    display: flex;
-    flex-direction: column; /* Stack chart and properties vertically */
-    gap: 20px;
+.filters-column, .controls-column {
+    max-width: 400px; /* Slightly wider for filters/controls */
+}
+
+.content-column, .table-column {
+    flex: 2; /* Takes more space for content */
 }
 
 h1 {
@@ -137,7 +136,7 @@ th:last-child, td:last-child {
 .hot-suburbs-table {
     width: 100%;
     max-width: 1000px;
-    margin: 20px auto;
+    margin: 20px 0;
     table-layout: auto;
     font-size: 14px;
 }
@@ -190,7 +189,7 @@ a:hover {
         flex-wrap: wrap; /* Stack columns on small screens */
         padding: 10px;
     }
-    .left-column, .right-column {
+    .column {
         min-width: 100%;
         max-width: none;
     }

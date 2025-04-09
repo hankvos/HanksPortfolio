@@ -8,35 +8,39 @@
 <body>
     <div class="data-source">{{ data_source }}</div>
     <div class="container">
-        <h1>Hot Suburbs ({{ hot_suburbs|length }}/{{ total_suburbs }} found, below Median (all regions): ${{ "{:,.0f}".format(median_all_regions) }})</h1>
-        <a href="/" class="button">Back to Dashboard</a>
-        <form method="POST" action="/hot_suburbs">
-            <label for="sort_by">Sort By:</label>
-            <select name="sort_by" id="sort_by" onchange="this.form.submit()">
-                <option value="Suburb" {% if sort_by == "Suburb" %}selected{% endif %}>Suburb</option>
-                <option value="Postcode" {% if sort_by == "Postcode" %}selected{% endif %}>Postcode</option>
-                <option value="Region" {% if sort_by == "Region" %}selected{% endif %}>Region</option>
-                <option value="Median Price (House)" {% if sort_by == "Median Price (House)" %}selected{% endif %}>Median Price (House)</option>
-            </select>
-        </form>
-        <table class="hot-suburbs-table">
-            <tr>
-                <th {% if sort_by == "Suburb" %}class="sorted"{% endif %}>Suburb</th>
-                <th {% if sort_by == "Postcode" %}class="sorted"{% endif %}>Postcode</th>
-                <th {% if sort_by == "Region" %}class="sorted"{% endif %}>Region</th>
-                <th {% if sort_by == "Median Price (House)" %}class="sorted"{% endif %}>Median Price (House)</th>
-            </tr>
-            {% for suburb in hot_suburbs %}
-            <tr>
-                <td>
-                    <a href="{{ url_for('index', region=suburb.region, postcode=suburb.postcode, suburb=suburb.suburb, property_type='ALL', sort_by='Street') }}">{{ suburb.suburb }}</a>
-                </td>
-                <td>{{ suburb.postcode }}</td>
-                <td>{{ suburb.region }}</td>
-                <td>{{ suburb.median_price | currency }}</td>
-            </tr>
-            {% endfor %}
-        </table>
+        <div class="column controls-column">
+            <h1>Hot Suburbs ({{ hot_suburbs|length }}/{{ total_suburbs }} found, below Median (all regions): ${{ "{:,.0f}".format(median_all_regions) }})</h1>
+            <a href="/" class="button">Back to Dashboard</a>
+            <form method="POST" action="/hot_suburbs">
+                <label for="sort_by">Sort By:</label>
+                <select name="sort_by" id="sort_by" onchange="this.form.submit()">
+                    <option value="Suburb" {% if sort_by == "Suburb" %}selected{% endif %}>Suburb</option>
+                    <option value="Postcode" {% if sort_by == "Postcode" %}selected{% endif %}>Postcode</option>
+                    <option value="Region" {% if sort_by == "Region" %}selected{% endif %}>Region</option>
+                    <option value="Median Price (House)" {% if sort_by == "Median Price (House)" %}selected{% endif %}>Median Price (House)</option>
+                </select>
+            </form>
+        </div>
+        <div class="column table-column">
+            <table class="hot-suburbs-table">
+                <tr>
+                    <th {% if sort_by == "Suburb" %}class="sorted"{% endif %}>Suburb</th>
+                    <th {% if sort_by == "Postcode" %}class="sorted"{% endif %}>Postcode</th>
+                    <th {% if sort_by == "Region" %}class="sorted"{% endif %}>Region</th>
+                    <th {% if sort_by == "Median Price (House)" %}class="sorted"{% endif %}>Median Price (House)</th>
+                </tr>
+                {% for suburb in hot_suburbs %}
+                <tr>
+                    <td>
+                        <a href="{{ url_for('index', region=suburb.region, postcode=suburb.postcode, suburb=suburb.suburb, property_type='ALL', sort_by='Street') }}">{{ suburb.suburb }}</a>
+                    </td>
+                    <td>{{ suburb.postcode }}</td>
+                    <td>{{ suburb.region }}</td>
+                    <td>{{ suburb.median_price | currency }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
     </div>
 </body>
 </html>
