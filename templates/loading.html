@@ -2,87 +2,30 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Loading - NSW Property Sales</title>
+    <title>Loading Property Data</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            background-color: #f0f0f0;
-        }
-        .loading {
-            text-align: center;
-            color: #333;
-        }
-        h1 {
-            color: #333;
-        }
-        .loading-notice {
-            color: #555;
-            font-style: italic;
-            margin: 10px 0;
-        }
-        .error {
-            color: red;
-            font-weight: bold;
-            margin: 10px 0;
-            display: none;
-        }
+        body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }
+        #initial-message { display: block; }
+        #timeout-message { display: none; }
     </style>
     <script>
-        let timeoutId;
-
-        function checkDataStatus() {
-            console.log("Polling /health...");
-            fetch('/health')
-                .then(response => {
-                    console.log("Health response status:", response.status);
-                    if (!response.ok) {
-                        throw new Error('Health check failed with status ' + response.status);
-                    }
-                    return response.text();
-                })
-                .then(data => {
-                    const trimmedData = data.trim();
-                    console.log("Health response body (raw):", data);
-                    console.log("Health response body (trimmed):", trimmedData);
-                    if (trimmedData === "OK") {
-                        console.log("Data loaded, redirecting to /");
-                        window.location.href = '/';
-                    } else {
-                        console.log("Data not yet loaded, retrying in 5s:", trimmedData);
-                        setTimeout(checkDataStatus, 5000);
-                    }
-                })
-                .catch(error => {
-                    console.error("Health check error:", error);
-                    setTimeout(checkDataStatus, 5000);
-                });
-        }
-
-        function startTimeout() {
-            timeoutId = setTimeout(() => {
-                document.getElementById('loading').style.display = 'none';
-                document.getElementById('error').style.display = 'block';
-            }, 60000);
-        }
-
-        window.onload = function() {
-            console.log("Loading page loaded, starting health check");
-            checkDataStatus();
-            startTimeout();
-        };
+        setTimeout(function() {
+            document.getElementById('initial-message').style.display = 'none';
+            document.getElementById('timeout-message').style.display = 'block';
+        }, 10000); // Switch after 10 seconds
+        setInterval(function() {
+            location.reload();
+        }, 30000); // Refresh every 30 seconds
     </script>
 </head>
 <body>
-    <div class="loading">
+    <div id="initial-message">
         <h1>Loading Property Data...</h1>
-        <p id="loading" class="loading-notice">Please wait, this may take a moment.</p>
-        <p id="error" class="error">Taking longer than expected. Please try refreshing the page or contact support if this persists.</p>
+        <p>Please wait, this may take a moment.</p>
+    </div>
+    <div id="timeout-message">
+        <h1>Loading Property Data...</h1>
+        <p>Taking longer than expected. Please try refreshing the page or contact support if this persists.</p>
     </div>
 </body>
 </html>

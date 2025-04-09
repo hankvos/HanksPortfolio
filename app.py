@@ -182,6 +182,7 @@ def startup_tasks():
     except Exception as e:
         logger.error(f"Startup failed: {str(e)}", exc_info=True)
         sys.stdout.flush()
+        startup_complete = False  # Ensure it doesn’t falsely report as complete
 
 @app.route('/health')
 def health_check():
@@ -247,9 +248,9 @@ def index():
         # Apply filters if selected, otherwise use all data
         if selected_suburb:
             filtered_df = filtered_df[filtered_df["Suburb"].str.upper() == selected_suburb.upper()]
-        if selected_postcode:  # Changed from elif to if to allow stacking filters
+        if selected_postcode:
             filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
-        if selected_region:    # Changed from elif to if
+        if selected_region:
             filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
         
         if selected_property_type != "ALL":
@@ -291,7 +292,7 @@ def index():
                                   median_price=median_price,
                                   median_all_regions=MEDIAN_ALL_REGIONS,
                                   display_suburb=selected_suburb if selected_suburb else None,
-                                  now_timestamp=int(time.time()))  # Cache-busting timestamp
+                                  now_timestamp=int(time.time()))
         logger.info("RENDERING: Completed")
         sys.stdout.flush()
         return response
@@ -305,11 +306,12 @@ def index():
 def currency_filter(value):
     return "${:,.2f}".format(value) if value else "N/A"
 
+# Run startup tasks synchronously before app starts
+logger.info("Running startup tasks before Gunicorn...")
+sys.stdout.flush()
+startup_tasks()
+
 if __name__ == "__main__":
-    if os.getenv("GUNICORN_CMD_ARGS"):
-        logger.info("Gunicorn environment detected, running startup tasks")
-        startup_tasks()
-    else:
-        logger.info("Running in development mode, starting startup tasks in thread")
-        threading.Thread(target=startup_tasks, daemon=True).start()
-    app.run(host="0.0.0.0", port=10000)
+    logger.info("Starting Flask app...")
+    sys.stdout.flush()
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
