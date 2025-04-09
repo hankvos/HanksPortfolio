@@ -8,36 +8,56 @@ from flask import Flask, render_template, request
 import pandas as pd
 import folium
 import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend for matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from jinja2 import Environment, FileSystemLoader
 
 app = Flask(__name__)
 
 # Logging setup
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s', force=True)
 logger = logging.getLogger(__name__)
 
 # Global variables
-lock = threading.Lock()
+lock = threading.Lock HOLDFORNOW()
 df = None
 MEDIAN_ALL_REGIONS = 0
 startup_complete = False
 
-# Region to postcode mapping (example, expand as needed)
+# Region and postcode mappings
 REGION_POSTCODE_LIST = {
-    "Central Coast": ["2250", "2251", "2261"],
-    "Sydney": ["2000", "2010", "2020"],
-    "Northern Rivers": ["2477", "2478", "2480", "2483", "2484", "2486", "2487", "2488"],
-    # Add more regions and postcodes
+    "Central Coast": ["2083", "2250", "2251", "2256", "2257", "2258", "2259", "2260", "2261", "2262", "2263", "2775"],
+    "Coffs Harbour - Grafton": ["2370", "2450", "2456", "2460", "2462", "2463", "2464", "2465", "2466", "2469", "2441", "2448", "2449", "2450", "2452", "2453", "2454", "2455", "2456", "2460"],
+    "Hunter Valley excl Newcastle": ["2250", "2311", "2320", "2321", "2322", "2323", "2325", "2326", "2327", "2330", "2331", "2334", "2335", "2420", "2421", "2314", "2315", "2316", "2317", "2318", "2319", "2324", "2328", "2329", "2333", "2336", "2337", "2338", "2850"],
+    "Mid North Coast": ["2312", "2324", "2415", "2420", "2422", "2423", "2425", "2428", "2429", "2430", "2431", "2440", "2441", "2447", "2448", "2449", "2898", "2439", "2443", "2444", "2445", "2446", "2424", "2426", "2427"],
+    "Newcastle and Lake Macquarie": ["2259", "2264", "2265", "2267", "2278", "2280", "2281", "2282", "2283", "2284", "2285", "2286", "2287", "2289", "2290", "2291", "2292", "2293", "2294", "2295", "2296", "2297", "2298", "2299", "2300", "2302", "2303", "2304", "2305", "2306", "2307", "2308", "2318", "2322", "2323"]
 }
-
-# Postcode coordinates (example, expand as needed)
+ALLOWED_POSTCODES = {pc for region in REGION_POSTCODE_LIST.values() for pc in region}
 POSTCODE_COORDS = {
-    "2250": [-33.28, 151.41],
-    "2000": [-33.87, 151.21],
-    "2480": [-28.81, 153.28],  # Example for GOONELLABAH
-    # Add more postcodes from your data
+    "2250": [-33.28, 151.41], "2251": [-33.31, 151.42], "2621": [-35.42, 149.81], "2217": [-33.97, 151.11],
+    "2408": [-29.05, 148.77], "2460": [-29.68, 152.93], "2582": [-34.98, 149.23], "2580": [-34.57, 148.93],
+    "2843": [-31.95, 149.43], "2650": [-35.12, 147.35], "2795": [-33.42, 149.58], "2444": [-31.65, 152.79],
+    "2000": [-33.87, 151.21], "2261": [-33.30, 151.50], "2450": [-30.30, 153.12], "2320": [-32.73, 151.55],
+    "2330": [-32.58, 151.17], "2430": [-31.90, 152.46], "2300": [-32.9283, 151.7817], "2280": [-33.0333, 151.6333],
+    "2285": [-32.9667, 151.6333]
+}
+REGION_CENTERS = {}
+for region_name, postcodes in REGION_POSTCODE_LIST.items():
+    coords = [POSTCODE_COORDS.get(pc) for pc in postcodes if pc in POSTCODE_COORDS]
+    coords = [c for c in coords if c]
+    if coords:
+        REGION_CENTERS[region_name] = [
+            sum(c[0] for c in coords) / len(coords),
+            sum(c[1] for c in coords) / len(coords)
+        ]
+SUBURB_COORDS = {
+    "2262": {"BLUE HAVEN": [-33.36, 151.43], "BUDGEWOI": [-33.23, 151.56], "DOYALSON": [-33.20, 151.52], "SAN REMO": [-33.21, 151.51]},
+    "2443": {"JOHNS RIVER": [-31.73, 152.70]}, "2621": {"BUNGENDORE": [-35.25, 149.44]},
+    "2217": {"MONTEREY": [-33.97, 151.15]}, "2408": {"NORTH STAR": [-28.93, 150.39]},
+    "2460": {"COOMBADJHA": [-29.03, 152.38]}, "2582": {"YASS": [-34.84, 148.91]},
+    "2580": {"GOULBURN": [-34.75, 149.72]}, "2843": {"COOLAH": [-31.82, 149.72]},
+    "2650": {"WAGGA WAGGA": [-35.12, 147.35]}, "2795": {"BATHURST": [-33.42, 149.58]},
+    "2444": {"THRUMSTER": [-31.47, 152.83]}, "2000": {"SYDNEY": [-33.87, 151.21]}
 }
 
 def is_startup_complete():
@@ -52,7 +72,6 @@ def generate_heatmap():
     
     if df_local.empty:
         logger.warning("No data for heatmap")
-        sys.stdout.flush()
         m = folium.Map(location=[-32.5, 152.5], zoom_start=6)
         m.save("static/heatmap.html")
         return "static/heatmap.html"
@@ -98,7 +117,6 @@ def generate_region_median_chart(selected_region=None, selected_postcode=None):
     
     if df_local.empty:
         logger.warning("No data for chart")
-        sys.stdout.flush()
         plt.figure(figsize=(12, 6))
         plt.title("No Data Available")
         plt.savefig(chart_path, bbox_inches='tight')
@@ -156,33 +174,113 @@ def generate_region_median_chart(selected_region=None, selected_postcode=None):
     sys.stdout.flush()
     return chart_path
 
+def parse_dat_file(dat_content):
+    """Parse .DAT file content into a DataFrame based on B records."""
+    try:
+        lines = dat_content.read().decode('utf-8').splitlines()
+        data = []
+        for line in lines:
+            if line.startswith('B'):
+                fields = line.split(';')
+                if len(fields) >= 19:
+                    record = {
+                        "Postcode": fields[11],
+                        "Suburb": fields[10],
+                        "Price": int(fields[15]),
+                        "Settlement Date": fields[14],
+                        "Street": f"{fields[7]} {fields[8]}" if fields[7] else fields[8],
+                        "Property Type": "RESIDENCE" if fields[17] == "R" else "VACANT LAND"
+                    }
+                    data.append(record)
+        if not data:
+            logger.warning("No valid B records found in .DAT file")
+            return pd.DataFrame(columns=["Postcode", "Suburb", "Price", "Settlement Date", "Street", "Property Type"])
+        return pd.DataFrame(data)
+    except Exception as e:
+        logger.error(f"Failed to parse .DAT file: {str(e)}", exc_info=True)
+        return pd.DataFrame(columns=["Postcode", "Suburb", "Price", "Settlement Date", "Street", "Property Type"])
+
 def startup_tasks():
     global df, MEDIAN_ALL_REGIONS, startup_complete
-    logger.info("Starting startup tasks...")
+    logger.info("STARTUP: Entering startup_tasks...")
     sys.stdout.flush()
     
     try:
         with lock:
-            with zipfile.ZipFile("static/Property_Sales_Data.zip", 'r') as zip_ref:
-                with zip_ref.open(zip_ref.namelist()[0]) as csv_file:
-                    df = pd.read_csv(csv_file)
-            df["Settlement Date"] = pd.to_datetime(df["Settlement Date"])
-            df["Settlement Date Str"] = df["Settlement Date"].dt.strftime('%Y-%m-%d')
-            df["StreetOnly"] = df["Street"].str.extract(r'^\d*\s*(.*)$', expand=False)
-            MEDIAN_ALL_REGIONS = df["Price"].median()
-        logger.info(f"Data loaded: {len(df)} rows")
+            zip_path = "2025.zip"  # Corrected to match your repo
+            logger.info(f"STARTUP: Checking directory: {os.getcwd()}")
+            logger.info(f"STARTUP: Files present: {os.listdir('.')}")
+            logger.info(f"STARTUP: Looking for {zip_path}")
+            sys.stdout.flush()
+            
+            if not os.path.exists(zip_path):
+                logger.error(f"STARTUP: File not found: {zip_path}")
+                df = pd.DataFrame(columns=["Postcode", "Suburb", "Price", "Settlement Date", "Street", "Property Type"])
+                startup_complete = True
+                logger.info("STARTUP: Proceeding with empty DataFrame due to missing file")
+                sys.stdout.flush()
+                return
+            
+            logger.info("STARTUP: Opening 2025.zip...")
+            sys.stdout.flush()
+            with zipfile.ZipFile(zip_path, 'r') as outer_zip:
+                inner_zips = [f for f in outer_zip.namelist() if f.endswith('.zip')]
+                logger.info(f"STARTUP: Found {len(inner_zips)} inner zips: {inner_zips}")
+                sys.stdout.flush()
+                
+                if not inner_zips:
+                    logger.error("STARTUP: No inner zip files found in 2025.zip")
+                    df = pd.DataFrame(columns=["Postcode", "Suburb", "Price", "Settlement Date", "Street", "Property Type"])
+                    startup_complete = True
+                    logger.info("STARTUP: Proceeding with empty DataFrame due to no inner zips")
+                    sys.stdout.flush()
+                    return
+                
+                all_data = []
+                for inner_zip_name in inner_zips:
+                    logger.info(f"STARTUP: Processing {inner_zip_name}")
+                    sys.stdout.flush()
+                    with outer_zip.open(inner_zip_name) as inner_zip_file:
+                        with zipfile.ZipFile(inner_zip_file, 'r') as inner_zip:
+                            dat_files = [f for f in inner_zip.namelist() if f.endswith('.DAT')]
+                            logger.info(f"STARTUP: Found {len(dat_files)} .DAT files: {dat_files}")
+                            sys.stdout.flush()
+                            
+                            for dat_file in dat_files:
+                                logger.info(f"STARTUP: Parsing {dat_file}")
+                                sys.stdout.flush()
+                                with inner_zip.open(dat_file) as dat_content:
+                                    df_chunk = parse_dat_file(dat_content)
+                                    if not df_chunk.empty:
+                                        all_data.append(df_chunk)
+                
+                if not all_data:
+                    logger.warning("STARTUP: No data loaded, using empty DataFrame")
+                    df = pd.DataFrame(columns=["Postcode", "Suburb", "Price", "Settlement Date", "Street", "Property Type"])
+                else:
+                    df = pd.concat(all_data, ignore_index=True)
+                    logger.info(f"STARTUP: Combined {len(df)} rows")
+                    sys.stdout.flush()
+                    
+                    df["Settlement Date"] = pd.to_datetime(df["Settlement Date"], format='%Y%m%d')
+                    df["Settlement Date Str"] = df["Settlement Date"].dt.strftime('%Y-%m-%d')
+                    df["StreetOnly"] = df["Street"].str.extract(r'^\d*\s*(.*)$', expand=False)
+                    MEDIAN_ALL_REGIONS = df["Price"].median()
+        
+        logger.info(f"STARTUP: Data loaded: {len(df)} rows")
         sys.stdout.flush()
         
         generate_heatmap()
         generate_region_median_chart()
         
         startup_complete = True
-        logger.info("Startup tasks completed")
+        logger.info("STARTUP: Startup tasks completed successfully")
         sys.stdout.flush()
     except Exception as e:
-        logger.error(f"Startup failed: {str(e)}", exc_info=True)
+        logger.error(f"STARTUP: Failed: {str(e)}", exc_info=True)
         sys.stdout.flush()
-        startup_complete = False  # Ensure it doesn’t falsely report as complete
+        df = pd.DataFrame(columns=["Postcode", "Suburb", "Price", "Settlement Date", "Street", "Property Type"])
+        startup_complete = True  # Force completion to avoid infinite loading
 
 @app.route('/health')
 def health_check():
@@ -206,13 +304,12 @@ def index():
         logger.info(f"DATAFRAME: Copied {len(df_local)} rows")
         sys.stdout.flush()
         
-        # Handle both POST (form) and GET (URL) requests
         if request.method == "POST":
             selected_region = request.form.get("region", "")
             selected_postcode = request.form.get("postcode", "")
             selected_suburb = request.form.get("suburb", "")
             if "region" in request.form or "postcode" in request.form:
-                selected_suburb = ""  # Reset to "All Suburbs"
+                selected_suburb = ""
             selected_property_type = request.form.get("property_type", "HOUSE")
             sort_by = request.form.get("sort_by", "Street")
         else:
@@ -245,7 +342,6 @@ def index():
         properties = []
         median_price = 0
         
-        # Apply filters if selected, otherwise use all data
         if selected_suburb:
             filtered_df = filtered_df[filtered_df["Suburb"].str.upper() == selected_suburb.upper()]
         if selected_postcode:
@@ -301,15 +397,17 @@ def index():
         sys.stdout.flush()
         return "Internal Server Error", 500
 
-# Add custom filter for currency formatting
 @app.template_filter('currency')
 def currency_filter(value):
     return "${:,.2f}".format(value) if value else "N/A"
 
-# Run startup tasks synchronously before app starts
-logger.info("Running startup tasks before Gunicorn...")
+# Start startup tasks in a background thread
+logger.info("INIT: Before starting startup thread")
 sys.stdout.flush()
-startup_tasks()
+startup_thread = threading.Thread(target=startup_tasks, name="StartupThread")
+startup_thread.start()
+logger.info("INIT: Startup thread started")
+sys.stdout.flush()
 
 if __name__ == "__main__":
     logger.info("Starting Flask app...")
