@@ -388,7 +388,7 @@ def index():
         heatmap_path = "static/heatmap.html" if os.path.exists("static/heatmap.html") else None
         region_median_chart_path = "static/region_median_chart.png" if os.path.exists("static/region_median_chart.png") else None
         
- ACTIONS       logger.info("RENDERING: Starting index.html render")
+        logger.info("RENDERING: Starting index.html render")
         sys.stdout.flush()
         response = render_template("index.html",
                                   data_source="NSW Valuer General Data",
