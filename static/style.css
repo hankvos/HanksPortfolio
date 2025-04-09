@@ -19,26 +19,32 @@ body {
     padding: 20px;
     background: white;
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap; /* Side-by-side columns */
     gap: 20px;
-    overflow-x: auto; /* Prevent horizontal overflow */
+    overflow-x: auto;
 }
 
 .left-column {
     flex: 1;
     min-width: 300px;
     max-width: 400px;
+    display: flex;
+    flex-direction: column;
 }
 
 .right-column {
     flex: 2;
     min-width: 400px;
+    display: flex;
+    flex-direction: column; /* Stack chart and properties vertically */
+    gap: 20px;
 }
 
 h1 {
     color: #333;
     text-align: center;
     margin-bottom: 20px;
+    width: 100%; /* Ensure header spans full width */
 }
 
 h2 {
@@ -48,7 +54,7 @@ h2 {
 
 label {
     margin-right: 10px;
-    display: block; /* Improve form readability */
+    display: block;
 }
 
 select, button {
@@ -56,7 +62,7 @@ select, button {
     margin: 5px 0;
     width: 100%;
     box-sizing: border-box;
-    font-size: 16px; /* Ensure readable text */
+    font-size: 16px;
 }
 
 button {
@@ -86,9 +92,8 @@ button {
 }
 
 .chart-container {
-    text-align: right;
-    margin-bottom: 20px;
     width: 100%;
+    margin-bottom: 20px;
 }
 
 .region-chart {
@@ -99,24 +104,24 @@ button {
 
 .properties-container {
     width: 100%;
-    overflow-x: auto; /* Scrollable properties table */
+    overflow-x: auto;
 }
 
-table {
+table.property-table {
     border-collapse: collapse;
     width: 100%;
     margin-top: 20px;
-    font-size: 14px; /* Smaller default font for tables */
+    font-size: 14px;
 }
 
 th, td {
     padding: 10px;
     border: 1px solid #ddd;
     text-align: left;
-    white-space: nowrap; /* Prevent premature wrapping */
+    white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis; /* Truncate long text */
-    max-width: 200px; /* Cap column width */
+    text-overflow: ellipsis;
+    max-width: 200px;
 }
 
 th {
@@ -181,34 +186,24 @@ a:hover {
 }
 
 @media (max-width: 768px) {
+    .container {
+        flex-wrap: wrap; /* Stack columns on small screens */
+        padding: 10px;
+    }
     .left-column, .right-column {
         min-width: 100%;
         max-width: none;
     }
-    
-    .container {
-        padding: 10px;
-    }
-    
     iframe {
         height: 200px;
     }
-    
-    table, .hot-suburbs-table {
-        font-size: 12px; /* Even smaller on mobile */
+    table.property-table, .hot-suburbs-table {
+        font-size: 12px;
     }
-    
     th, td {
         padding: 8px;
     }
-    
     select, button {
-        font-size: 14px; /* Readable on small screens */
+        font-size: 14px;
     }
-}
-
-/* Add this to the end of your existing style.css */
-table th:last-child, table td:last-child {
-    text-align: center;
-    width: 60px; /* Narrower width for the Map column */
 }

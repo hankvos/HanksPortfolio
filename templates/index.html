@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>NSW Property Analyser</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='1.3') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='1.4') }}">
     <script>
         function updateDropdowns() {
             document.getElementById("search-form").submit();
@@ -54,41 +54,53 @@
                 <option value="Price" {% if sort_by == "Price" %}selected{% endif %}>Price</option>
             </select>
         </form>
-        
-        {% if heatmap_path %}
-        <h2>Property Heatmap</h2>
-        <iframe src="{{ url_for('static', filename='heatmap.html') }}" width="100%" height="500"></iframe>
-        {% endif %}
-        
-        {% if region_median_chart_path %}
-        <h2>Median Price Chart</h2>
-        <img src="{{ url_for('static', filename='region_median_chart.png') }}" alt="Region Median Chart">
-        {% endif %}
-        
-        <h2>Properties ({{ properties|length }} found)</h2>
-        <p>Median Price: {{ median_price | currency }} | Median Price (all regions): {{ median_all_regions | currency }}</p>
-        <table class="property-table">
-            <tr>
-                <th>Street</th>
-                <th>Suburb</th>
-                <th>Postcode</th>
-                <th>Property Type</th>
-                <th>Settlement Date</th>
-                <th>Price</th>
-                <th>Block Size (m²)</th>
-            </tr>
-            {% for property in properties %}
-            <tr>
-                <td>{{ property["Street"] }}</td>
-                <td>{{ property["Suburb"] }}</td>
-                <td>{{ property["Postcode"] }}</td>
-                <td>{{ property["Property Type"] }}</td>
-                <td>{{ property["Settlement Date Str"] }}</td>
-                <td>{{ property["Price"] | currency }}</td>
-                <td>{{ property["Block Size"] | default("N/A") }}</td>
-            </tr>
-            {% endfor %}
-        </table>
+
+        <div class="left-column">
+            {% if heatmap_path %}
+            <h2>Property Heatmap</h2>
+            <iframe src="{{ url_for('static', filename='heatmap.html') }}" title="Property Heatmap"></iframe>
+            {% endif %}
+        </div>
+
+        <div class="right-column">
+            {% if region_median_chart_path %}
+            <div class="chart-container">
+                <h2>Median Price Chart</h2>
+                <img src="{{ url_for('static', filename='region_median_chart.png') }}?{{ 'now'|datetime|timestamp }}" class="region-chart" alt="Region Median Chart">
+            </div>
+            {% endif %}
+
+            <div class="properties-container">
+                <h2>Properties ({{ properties|length }} found)</h2>
+                <p>Median Price: {{ median_price | currency }} | Median Price (all regions): {{ median_all_regions | currency }}</p>
+                {% if properties %}
+                <table class="property-table">
+                    <tr>
+                        <th>Street</th>
+                        <th>Suburb</th>
+                        <th>Postcode</th>
+                        <th>Property Type</th>
+                        <th>Settlement Date</th>
+                        <th>Price</th>
+                        <th>Block Size (m²)</th>
+                    </tr>
+                    {% for property in properties %}
+                    <tr>
+                        <td>{{ property["Street"] }}</td>
+                        <td>{{ property["Suburb"] }}</td>
+                        <td>{{ property["Postcode"] }}</td>
+                        <td>{{ property["Property Type"] }}</td>
+                        <td>{{ property["Settlement Date Str"] }}</td>
+                        <td>{{ property["Price"] | currency }}</td>
+                        <td>{{ property["Block Size"] | default("N/A") }}</td>
+                    </tr>
+                    {% endfor %}
+                </table>
+                {% else %}
+                <p>No properties found.</p>
+                {% endif %}
+            </div>
+        </div>
     </div>
 </body>
 </html>
