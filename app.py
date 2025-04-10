@@ -323,54 +323,62 @@ def index():
         logger.info(f"DATAFRAME: Copied {len(df_local)} rows")
         sys.stdout.flush()
         
+        # Get form data
         if request.method == "POST":
             selected_region = request.form.get("region", "")
             selected_postcode = request.form.get("postcode", "")
             selected_suburb = request.form.get("suburb", "")
+            # Reset suburb if region or postcode changes
             if "region" in request.form or "postcode" in request.form:
                 selected_suburb = ""
-            selected_property_type = request.form.get("property_type", "HOUSE")
+            selected_property_type = request.form.get("property_type", "ALL")
             sort_by = request.form.get("sort_by", "Street")
         else:
             selected_region = request.args.get("region", "")
             selected_postcode = request.args.get("postcode", "")
             selected_suburb = request.args.get("suburb", "")
-            selected_property_type = request.args.get("property_type", "HOUSE")
+            selected_property_type = request.args.get("property_type", "ALL")
             sort_by = request.args.get("sort_by", "Street")
         
+        # Populate dropdowns based on current filters
         unique_postcodes = sorted(df_local["Postcode"].unique()) if not df_local.empty else []
         unique_suburbs = sorted(df_local["Suburb"].unique()) if not df_local.empty else []
         
         if selected_region:
             unique_postcodes = [pc for pc in unique_postcodes if pc in REGION_POSTCODE_LIST.get(selected_region, [])]
+            logger.info(f"Filtered postcodes for {selected_region}: {unique_postcodes}")
         if selected_postcode:
             unique_suburbs = sorted(df_local[df_local["Postcode"] == selected_postcode]["Suburb"].unique())
+            logger.info(f"Filtered suburbs for postcode {selected_postcode}: {unique_suburbs}")
         elif selected_region:
             postcodes = REGION_POSTCODE_LIST.get(selected_region, [])
             unique_suburbs = sorted(df_local[df_local["Postcode"].isin(postcodes)]["Suburb"].unique())
+            logger.info(f"Filtered suburbs for region {selected_region}: {unique_suburbs}")
         
         logger.info(f"REQUEST: method={request.method}, region={selected_region}, postcode={selected_postcode}, suburb={selected_suburb}, type={selected_property_type}, sort={sort_by}")
         sys.stdout.flush()
         
-        display_postcode = selected_postcode if selected_region else ""
-        display_suburb = selected_suburb if selected_region and selected_postcode else ""
-        
-        chart_path = generate_region_median_chart(selected_region, selected_postcode)
-        
+        # Filter properties hierarchically
         filtered_df = df_local.copy()
-        properties = []
-        median_price = 0
+        logger.info(f"Initial properties: {len(filtered_df)}")
         
-        if selected_suburb:
-            filtered_df = filtered_df[filtered_df["Suburb"].str.upper() == selected_suburb.upper()]
-        if selected_postcode:
-            filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
         if selected_region:
             filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
+            logger.info(f"After region filter ({selected_region}): {len(filtered_df)} properties")
+        if selected_postcode:
+            filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
+            logger.info(f"After postcode filter ({selected_postcode}): {len(filtered_df)} properties")
+        if selected_suburb:
+            filtered_df = filtered_df[filtered_df["Suburb"].str.upper() == selected_suburb.upper()]
+            logger.info(f"After suburb filter ({selected_suburb}): {len(filtered_df)} properties")
         
         if selected_property_type != "ALL":
             filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
+            logger.info(f"After property type filter ({selected_property_type}): {len(filtered_df)} properties")
         
+        # Sort properties
+        properties = []
+        median_price = 0
         if not filtered_df.empty:
             if sort_by == "Street":
                 properties = filtered_df.sort_values(by="StreetOnly").to_dict('records')
@@ -397,8 +405,8 @@ def index():
                                   suburbs=unique_suburbs,
                                   property_types=["ALL", "HOUSE", "UNIT", "COMMERCIAL", "FARM", "VACANT LAND"],
                                   selected_region=selected_region,
-                                  selected_postcode=display_postcode,
-                                  selected_suburb=display_suburb,
+                                  selected_postcode=selected_postcode,
+                                  selected_suburb=selected_suburb,
                                   selected_property_type=selected_property_type,
                                   sort_by=sort_by,
                                   heatmap_path=heatmap_path,

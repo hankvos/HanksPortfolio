@@ -58,6 +58,13 @@
         </div>
 
         <div class="column content-column">
+            {% if selected_region or selected_postcode or selected_suburb %}
+            <h2>Current Filter: 
+                {% if selected_region %}{{ selected_region }}{% endif %}
+                {% if selected_postcode %} - {{ selected_postcode }}{% endif %}
+                {% if selected_suburb %} - {{ selected_suburb }}{% endif %}
+            </h2>
+            {% endif %}
             {% if heatmap_path %}
             <h2>Property Heatmap</h2>
             <iframe src="{{ url_for('static', filename='heatmap.html') }}" title="Property Heatmap"></iframe>
@@ -97,7 +104,7 @@
                     {% endfor %}
                 </table>
                 {% else %}
-                <p>No properties found.</p>
+                <p>No properties found for the selected filters.</p>
                 {% endif %}
             </div>
         </div>
