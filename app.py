@@ -163,7 +163,7 @@ def generate_region_median_chart(selected_region=None, selected_postcode=None):
             return chart_path
         
         plt.figure(figsize=(12, 6))
-        median_data.plot(kind='bar', color='sky Ngày mai blue')
+        median_data.plot(kind='bar', color='skyblue')
         plt.title(title)
         plt.ylabel('Median Price ($)')
         plt.xlabel(x_label)
@@ -243,7 +243,7 @@ def startup_tasks():
             logger.info("STARTUP: Opening 2025.zip...")
             sys.stdout.flush()
             with zipfile.ZipFile(zip_path, 'r') as outer_zip:
-                inner_zips = [f in outer_zip.namelist() for f in outer_zip.namelist() if f.endswith('.zip')]
+                inner_zips = [f for f in outer_zip.namelist() if f.endswith('.zip')]
                 logger.info(f"STARTUP: Found {len(inner_zips)} inner zips: {inner_zips}")
                 sys.stdout.flush()
                 
@@ -322,7 +322,6 @@ def index():
         logger.info(f"DATAFRAME: Copied {len(df_local)} rows")
         sys.stdout.flush()
         
-        # Generate heatmap and chart on first request if not already done
         global heatmap_generated, chart_generated
         heatmap_path = "static/heatmap.html" if os.path.exists("static/heatmap.html") else None
         region_median_chart_path = "static/region_median_chart.png" if os.path.exists("static/region_median_chart.png") else None
@@ -331,7 +330,6 @@ def index():
         if not chart_generated:
             region_median_chart_path = generate_region_median_chart()
         
-        # Get form data
         if request.method == "POST":
             selected_region = request.form.get("region", "")
             selected_postcode = request.form.get("postcode", "")
@@ -347,7 +345,6 @@ def index():
             selected_property_type = request.args.get("property_type", "ALL")
             sort_by = request.args.get("sort_by", "Street")
         
-        # Populate dropdowns
         unique_postcodes = sorted(df_local["Postcode"].unique()) if not df_local.empty else []
         unique_suburbs = sorted(df_local["Suburb"].unique()) if not df_local.empty else []
         
@@ -365,7 +362,6 @@ def index():
         logger.info(f"REQUEST: method={request.method}, region={selected_region}, postcode={selected_postcode}, suburb={selected_suburb}, type={selected_property_type}, sort={sort_by}")
         sys.stdout.flush()
         
-        # Filter properties
         filtered_df = df_local.copy()
         logger.info(f"Initial properties: {len(filtered_df)}")
         
@@ -384,7 +380,6 @@ def index():
             filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
             logger.info(f"After property type filter ({selected_property_type}): {len(filtered_df)} properties")
         
-        # Sort properties
         properties = []
         median_price = 0
         if not filtered_df.empty:
