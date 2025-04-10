@@ -106,7 +106,7 @@ def generate_heatmap():
     for coord in sampled_coords:
         folium.CircleMarker(location=coord, radius=5, fill=True, fill_opacity=0.7).add_to(m)
     m.fit_bounds(bounds)
-    m.save("static melee = pd.read_csv("2025.zip")
+    m.save("static/heatmap.html")
     logger.info("Heatmap generated at static/heatmap.html")
     heatmap_generated = True
     sys.stdout.flush()
@@ -144,13 +144,6 @@ def generate_region_median_chart(selected_region=None, selected_postcode=None):
             logger.info(f"Region filter: {selected_region}, {len(median_data)} postcodes")
         else:
             return None  # No chart when no filters are applied
-            # region_medians = df_local.groupby('Postcode')['Price'].median().reset_index()
-            # postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
-            # region_medians['Region'] = region_medians['Postcode'].map(postcode_to_region)
-            # median_data = region_medians.groupby('Region')['Price'].median().sort_values()
-            # title = "Median House Prices by Region"
-            # x_label = "Region"
-            # logger.info(f"No filter: {len(median_data)} regions")
         
         if median_data.empty:
             logger.info("No median data to plot")
@@ -326,8 +319,6 @@ def index():
         region_median_chart_path = None  # Default to None, only generate when filters applied
         if not heatmap_generated:
             heatmap_path = generate_heatmap()
-        # if not chart_generated:
-        #     region_median_chart_path = generate_region_median_chart()  # Moved to filter-specific generation
         
         if request.method == "POST":
             selected_region = request.form.get("region", "")
@@ -344,10 +335,10 @@ def index():
             selected_property_type = request.args.get("property_type", "ALL")
             sort_by = request.args.get("sort_by", "Street")
         
-        # Reset postcode when "All Regions" is explicitly selected
+        # Reset postcode and suburb when "All Regions" is selected
         if selected_region == "":
             selected_postcode = ""  # Reset to "All Postcodes"
-            selected_suburb = ""    # Also reset suburb for consistency
+            selected_suburb = ""    # Reset suburb for consistency
         
         unique_postcodes = sorted(df_local["Postcode"].unique()) if not df_local.empty else []
         unique_suburbs = sorted(df_local["Suburb"].unique()) if not df_local.empty else []
