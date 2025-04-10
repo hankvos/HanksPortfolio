@@ -320,14 +320,17 @@ def index():
         if not heatmap_generated:
             heatmap_path = generate_heatmap()
         
+        # Get form or query parameters
         if request.method == "POST":
             selected_region = request.form.get("region", "")
             selected_postcode = request.form.get("postcode", "")
             selected_suburb = request.form.get("suburb", "")
-            if "region" in request.form or "postcode" in request.form:
-                selected_suburb = ""
             selected_property_type = request.form.get("property_type", "ALL")
             sort_by = request.form.get("sort_by", "Street")
+            # Only reset suburb if region or postcode changes, not on suburb selection
+            if "region" in request.form or "postcode" in request.form:
+                if not selected_suburb:  # Only reset if suburb isn’t explicitly set
+                    selected_suburb = ""
         else:
             selected_region = request.args.get("region", "")
             selected_postcode = request.args.get("postcode", "")
@@ -338,7 +341,8 @@ def index():
         # Reset postcode and suburb when "All Regions" is selected
         if selected_region == "":
             selected_postcode = ""  # Reset to "All Postcodes"
-            selected_suburb = ""    # Reset suburb for consistency
+            if not selected_suburb:  # Preserve suburb if set
+                selected_suburb = ""
         
         unique_postcodes = sorted(df_local["Postcode"].unique()) if not df_local.empty else []
         unique_suburbs = sorted(df_local["Suburb"].unique()) if not df_local.empty else []
@@ -357,13 +361,13 @@ def index():
         logger.info(f"REQUEST: method={request.method}, region={selected_region}, postcode={selected_postcode}, suburb={selected_suburb}, type={selected_property_type}, sort={sort_by}")
         sys.stdout.flush()
         
-        total_properties = len(df_local)  # Total properties across all regions
+        total_properties = len(df_local) if not df_local.empty else 0  # Total properties across all regions
         logger.info(f"Total properties available: {total_properties}")
         
         properties = []  # Default to empty list (no properties displayed unless filtered)
         median_price = None  # Default to None (N/A) when no filters
         
-        # Only filter and populate properties if a specific filter is applied
+        # Filter and populate properties if a specific filter is applied
         if (selected_region and selected_region in REGION_POSTCODE_LIST) or selected_postcode or selected_suburb:
             filtered_df = df_local.copy()
             if selected_region and selected_region in REGION_POSTCODE_LIST:
@@ -390,7 +394,6 @@ def index():
                     properties = filtered_df.sort_values(by=sort_by).to_dict('records')
                 median_price = filtered_df["Price"].median()
                 logger.info(f"Properties to render: {len(properties)}")
-                # Generate chart only when filters are applied
                 region_median_chart_path = generate_region_median_chart(selected_region, selected_postcode)
             else:
                 logger.info("No properties match the filters")

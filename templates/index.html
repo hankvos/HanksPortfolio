@@ -78,7 +78,7 @@
             {% endif %}
 
             <div class="properties-container">
-                <h2>Properties ({{ properties|length }} found)</h2>
+                <h2>Properties ({{ total_properties }} found)</h2>
                 <p>Median Price: {{ median_price | currency }} | Median Price (all regions): {{ median_all_regions | currency }}</p>
                 {% if properties %}
                 <table class="property-table">
@@ -104,7 +104,7 @@
                     {% endfor %}
                 </table>
                 {% else %}
-                <p>No properties found for the selected filters.</p>
+                <p>No properties selected.</p>
                 {% endif %}
             </div>
         </div>
