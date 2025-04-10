@@ -163,7 +163,7 @@ def generate_region_median_chart(selected_region=None, selected_postcode=None):
             return chart_path
         
         plt.figure(figsize=(12, 6))
-        median_data.plot(kind='bar', color='skyblue')
+        median_data.plot(kind='bar', color='sky Ngày mai blue')
         plt.title(title)
         plt.ylabel('Median Price ($)')
         plt.xlabel(x_label)
@@ -243,7 +243,7 @@ def startup_tasks():
             logger.info("STARTUP: Opening 2025.zip...")
             sys.stdout.flush()
             with zipfile.ZipFile(zip_path, 'r') as outer_zip:
-                inner_zips = [f for f in outer_zip.namelist() if f.endswith('.zip')]
+                inner_zips = [f in outer_zip.namelist() for f in outer_zip.namelist() if f.endswith('.zip')]
                 logger.info(f"STARTUP: Found {len(inner_zips)} inner zips: {inner_zips}")
                 sys.stdout.flush()
                 
@@ -278,11 +278,10 @@ def startup_tasks():
                     df = pd.DataFrame(columns=["Postcode", "Suburb", "Price", "Settlement Date", "Street", "Property Type"])
                 else:
                     df = pd.concat(all_data, ignore_index=True)
-                    logger.info(f"STARTUP: Combined {len(df)} rows before filtering")
-                    sys.stdout.flush()
-                    
+                    logger.info(f"STARTUP: Initial rows: {len(df)}")
                     df = df[df["Postcode"].isin(ALLOWED_POSTCODES)]
-                    logger.info(f"STARTUP: Filtered to {len(df)} rows within specified regions")
+                    logger.info(f"STARTUP: Filtered rows: {len(df)}")
+                    logger.info(f"STARTUP: Central Coast rows: {len(df[df['Postcode'].isin(REGION_POSTCODE_LIST['Central Coast'])])}")
                     
                     df["Settlement Date"] = pd.to_datetime(df["Settlement Date"], format='%Y%m%d')
                     df["Settlement Date Str"] = df["Settlement Date"].dt.strftime('%Y-%m-%d')
@@ -292,7 +291,6 @@ def startup_tasks():
         logger.info(f"STARTUP: Data loaded: {len(df)} rows")
         sys.stdout.flush()
         
-        # Defer heatmap and chart generation to first request
         startup_complete = True
         logger.info("STARTUP: Startup tasks completed successfully")
         sys.stdout.flush()
@@ -372,6 +370,7 @@ def index():
         logger.info(f"Initial properties: {len(filtered_df)}")
         
         if selected_region:
+            logger.info(f"Filtering for {selected_region} with postcodes: {REGION_POSTCODE_LIST.get(selected_region, [])}")
             filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
             logger.info(f"After region filter ({selected_region}): {len(filtered_df)} properties")
         if selected_postcode:
@@ -396,6 +395,7 @@ def index():
             else:
                 properties = filtered_df.sort_values(by=sort_by).to_dict('records')
             median_price = filtered_df["Price"].median()
+            logger.info(f"Properties to render: {len(properties)}")
         else:
             logger.info("No properties match the filters")
         
