@@ -82,7 +82,6 @@ def generate_heatmap():
         heatmap_generated = True
         return "static/heatmap.html"
     
-    # Filter to only allowed region postcodes
     df_local = df_local[df_local["Postcode"].isin(ALLOWED_POSTCODES)]
     coordinates = []
     for _, row in df_local.iterrows():
@@ -90,11 +89,10 @@ def generate_heatmap():
         coords = POSTCODE_COORDS.get(postcode)
         if coords:
             coordinates.append(coords)
-        # Silently skip missing coordinates
     
     if not coordinates:
         logger.info("No valid coordinates in regions, using default bounds")
-        bounds = [[-35.0, 149.0], [-29.0, 154.0]]  # Rough bounds for NSW regions
+        bounds = [[-35.0, 149.0], [-29.0, 154.0]]
     else:
         bounds = [
             [min(c[0] for c in coordinates) - 0.1, min(c[1] for c in coordinates) - 0.1],
@@ -108,7 +106,7 @@ def generate_heatmap():
     for coord in sampled_coords:
         folium.CircleMarker(location=coord, radius=5, fill=True, fill_opacity=0.7).add_to(m)
     m.fit_bounds(bounds)
-    m.save("static/heatmap.html")
+    m.save("static melee = pd.read_csv("2025.zip")
     logger.info("Heatmap generated at static/heatmap.html")
     heatmap_generated = True
     sys.stdout.flush()
@@ -145,13 +143,14 @@ def generate_region_median_chart(selected_region=None, selected_postcode=None):
             x_label = "Postcode"
             logger.info(f"Region filter: {selected_region}, {len(median_data)} postcodes")
         else:
-            region_medians = df_local.groupby('Postcode')['Price'].median().reset_index()
-            postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
-            region_medians['Region'] = region_medians['Postcode'].map(postcode_to_region)
-            median_data = region_medians.groupby('Region')['Price'].median().sort_values()
-            title = "Median House Prices by Region"
-            x_label = "Region"
-            logger.info(f"No filter: {len(median_data)} regions")
+            return None  # No chart when no filters are applied
+            # region_medians = df_local.groupby('Postcode')['Price'].median().reset_index()
+            # postcode_to_region = {pc: region for region, pcs in REGION_POSTCODE_LIST.items() for pc in pcs}
+            # region_medians['Region'] = region_medians['Postcode'].map(postcode_to_region)
+            # median_data = region_medians.groupby('Region')['Price'].median().sort_values()
+            # title = "Median House Prices by Region"
+            # x_label = "Region"
+            # logger.info(f"No filter: {len(median_data)} regions")
         
         if median_data.empty:
             logger.info("No median data to plot")
@@ -324,11 +323,11 @@ def index():
         
         global heatmap_generated, chart_generated
         heatmap_path = "static/heatmap.html" if os.path.exists("static/heatmap.html") else None
-        region_median_chart_path = "static/region_median_chart.png" if os.path.exists("static/region_median_chart.png") else None
+        region_median_chart_path = None  # Default to None, only generate when filters applied
         if not heatmap_generated:
             heatmap_path = generate_heatmap()
-        if not chart_generated:
-            region_median_chart_path = generate_region_median_chart()
+        # if not chart_generated:
+        #     region_median_chart_path = generate_region_median_chart()  # Moved to filter-specific generation
         
         if request.method == "POST":
             selected_region = request.form.get("region", "")
@@ -345,16 +344,21 @@ def index():
             selected_property_type = request.args.get("property_type", "ALL")
             sort_by = request.args.get("sort_by", "Street")
         
+        # Reset postcode when "All Regions" is explicitly selected
+        if selected_region == "":
+            selected_postcode = ""  # Reset to "All Postcodes"
+            selected_suburb = ""    # Also reset suburb for consistency
+        
         unique_postcodes = sorted(df_local["Postcode"].unique()) if not df_local.empty else []
         unique_suburbs = sorted(df_local["Suburb"].unique()) if not df_local.empty else []
         
-        if selected_region:
+        if selected_region and selected_region in REGION_POSTCODE_LIST:
             unique_postcodes = [pc for pc in unique_postcodes if pc in REGION_POSTCODE_LIST.get(selected_region, [])]
             logger.info(f"Filtered postcodes for {selected_region}: {unique_postcodes}")
         if selected_postcode:
             unique_suburbs = sorted(df_local[df_local["Postcode"] == selected_postcode]["Suburb"].unique())
             logger.info(f"Filtered suburbs for postcode {selected_postcode}: {unique_suburbs}")
-        elif selected_region:
+        elif selected_region and selected_region in REGION_POSTCODE_LIST:
             postcodes = REGION_POSTCODE_LIST.get(selected_region, [])
             unique_suburbs = sorted(df_local[df_local["Postcode"].isin(postcodes)]["Suburb"].unique())
             logger.info(f"Filtered suburbs for region {selected_region}: {unique_suburbs}")
@@ -363,36 +367,42 @@ def index():
         sys.stdout.flush()
         
         filtered_df = df_local.copy()
-        logger.info(f"Initial properties: {len(filtered_df)}")
+        total_properties = len(filtered_df)
+        logger.info(f"Total properties available: {total_properties}")
         
-        if selected_region:
-            logger.info(f"Filtering for {selected_region} with postcodes: {REGION_POSTCODE_LIST.get(selected_region, [])}")
-            filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
-            logger.info(f"After region filter ({selected_region}): {len(filtered_df)} properties")
-        if selected_postcode:
-            filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
-            logger.info(f"After postcode filter ({selected_postcode}): {len(filtered_df)} properties")
-        if selected_suburb:
-            filtered_df = filtered_df[filtered_df["Suburb"].str.upper() == selected_suburb.upper()]
-            logger.info(f"After suburb filter ({selected_suburb}): {len(filtered_df)} properties")
+        properties = []  # Default to empty list
+        median_price = None  # Default to None (N/A) when no filters
         
-        if selected_property_type != "ALL":
-            filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
-            logger.info(f"After property type filter ({selected_property_type}): {len(filtered_df)} properties")
-        
-        properties = []
-        median_price = 0
-        if not filtered_df.empty:
-            if sort_by == "Street":
-                properties = filtered_df.sort_values(by="StreetOnly").to_dict('records')
-            elif sort_by == "Settlement Date":
-                properties = filtered_df.sort_values(by="Settlement Date").to_dict('records')
+        # Only filter and populate properties if a specific filter is applied
+        if (selected_region and selected_region in REGION_POSTCODE_LIST) or selected_postcode or selected_suburb:
+            if selected_region and selected_region in REGION_POSTCODE_LIST:
+                logger.info(f"Filtering for {selected_region} with postcodes: {REGION_POSTCODE_LIST.get(selected_region, [])}")
+                filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
+                logger.info(f"After region filter ({selected_region}): {len(filtered_df)} properties")
+            if selected_postcode:
+                filtered_df = filtered_df[filtered_df["Postcode"] == selected_postcode]
+                logger.info(f"After postcode filter ({selected_postcode}): {len(filtered_df)} properties")
+            if selected_suburb:
+                filtered_df = filtered_df[filtered_df["Suburb"].str.upper() == selected_suburb.upper()]
+                logger.info(f"After suburb filter ({selected_suburb}): {len(filtered_df)} properties")
+            
+            if selected_property_type != "ALL":
+                filtered_df = filtered_df[filtered_df["Property Type"] == selected_property_type]
+                logger.info(f"After property type filter ({selected_property_type}): {len(filtered_df)} properties")
+            
+            if not filtered_df.empty:
+                if sort_by == "Street":
+                    properties = filtered_df.sort_values(by="StreetOnly").to_dict('records')
+                elif sort_by == "Settlement Date":
+                    properties = filtered_df.sort_values(by="Settlement Date").to_dict('records')
+                else:
+                    properties = filtered_df.sort_values(by=sort_by).to_dict('records')
+                median_price = filtered_df["Price"].median()
+                logger.info(f"Properties to render: {len(properties)}")
+                # Generate chart only when filters are applied
+                region_median_chart_path = generate_region_median_chart(selected_region, selected_postcode)
             else:
-                properties = filtered_df.sort_values(by=sort_by).to_dict('records')
-            median_price = filtered_df["Price"].median()
-            logger.info(f"Properties to render: {len(properties)}")
-        else:
-            logger.info("No properties match the filters")
+                logger.info("No properties match the filters")
         
         logger.info(f"FILTERED: {len(properties)} properties")
         sys.stdout.flush()
@@ -415,6 +425,7 @@ def index():
                                   properties=properties,
                                   median_price=median_price,
                                   median_all_regions=MEDIAN_ALL_REGIONS,
+                                  total_properties=total_properties,
                                   display_suburb=selected_suburb if selected_suburb else None,
                                   now_timestamp=int(time.time()))
         logger.info("RENDERING: Completed")
@@ -468,7 +479,7 @@ def hot_suburbs():
 
 @app.template_filter('currency')
 def currency_filter(value):
-    return "${:,.2f}".format(value) if value else "N/A"
+    return "${:,.2f}".format(value) if value is not None else "N/A"
 
 # Start startup tasks in a background thread
 logger.info("INIT: Before starting startup thread")
