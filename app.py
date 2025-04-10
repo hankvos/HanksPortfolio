@@ -357,15 +357,15 @@ def index():
         logger.info(f"REQUEST: method={request.method}, region={selected_region}, postcode={selected_postcode}, suburb={selected_suburb}, type={selected_property_type}, sort={sort_by}")
         sys.stdout.flush()
         
-        filtered_df = df_local.copy()
-        total_properties = len(filtered_df)
+        total_properties = len(df_local)  # Total properties across all regions
         logger.info(f"Total properties available: {total_properties}")
         
-        properties = []  # Default to empty list
+        properties = []  # Default to empty list (no properties displayed unless filtered)
         median_price = None  # Default to None (N/A) when no filters
         
         # Only filter and populate properties if a specific filter is applied
         if (selected_region and selected_region in REGION_POSTCODE_LIST) or selected_postcode or selected_suburb:
+            filtered_df = df_local.copy()
             if selected_region and selected_region in REGION_POSTCODE_LIST:
                 logger.info(f"Filtering for {selected_region} with postcodes: {REGION_POSTCODE_LIST.get(selected_region, [])}")
                 filtered_df = filtered_df[filtered_df["Postcode"].isin(REGION_POSTCODE_LIST.get(selected_region, []))]
