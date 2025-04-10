@@ -23,6 +23,8 @@ lock = threading.Lock()
 df = None
 MEDIAN_ALL_REGIONS = 0
 startup_complete = False
+heatmap_generated = False
+chart_generated = False
 
 # Region and postcode mappings
 REGION_POSTCODE_LIST = {
@@ -39,9 +41,7 @@ POSTCODE_COORDS = {
     "2843": [-31.95, 149.43], "2650": [-35.12, 147.35], "2795": [-33.42, 149.58], "2444": [-31.65, 152.79],
     "2000": [-33.87, 151.21], "2261": [-33.30, 151.50], "2450": [-30.30, 153.12], "2320": [-32.73, 151.55],
     "2325": [-32.58, 151.17], "2430": [-31.90, 152.46], "2300": [-32.9283, 151.7817], "2280": [-33.0333, 151.6333],
-    "2285": [-32.9667, 151.6333],
-    "2011": [-33.88, 151.22],  # Added for Potts Point / Elizabeth Bay
-    "2018": [-33.92, 151.20]   # Added for Rosebery
+    "2285": [-32.9667, 151.6333], "2011": [-33.88, 151.22], "2018": [-33.92, 151.20]
 }
 REGION_CENTERS = {}
 for region_name, postcodes in REGION_POSTCODE_LIST.items():
@@ -60,9 +60,8 @@ SUBURB_COORDS = {
     "2580": {"GOULBURN": [-34.75, 149.72]}, "2843": {"COOLAH": [-31.82, 149.72]},
     "2650": {"WAGGA WAGGA": [-35.12, 147.35]}, "2795": {"BATHURST": [-33.42, 149.58]},
     "2444": {"THRUMSTER": [-31.47, 152.83]}, "2000": {"SYDNEY": [-33.87, 151.21]},
-    "2325": {"CESSNOCK": [-32.83, 151.35]},
-    "2011": {"POTTS POINT": [-33.87, 151.22], "ELIZABETH BAY": [-33.87, 151.23]},  # Added
-    "2018": {"ROSEBERY": [-33.92, 151.20]}  # Added
+    "2325": {"CESSNOCK": [-32.83, 151.35]}, "2011": {"POTTS POINT": [-33.87, 151.22], "ELIZABETH BAY": [-33.87, 151.23]},
+    "2018": {"ROSEBERY": [-33.92, 151.20]}
 }
 
 def is_startup_complete():
@@ -70,31 +69,32 @@ def is_startup_complete():
     return startup_complete
 
 def generate_heatmap():
+    global heatmap_generated
     logger.info("Generating heatmap...")
     sys.stdout.flush()
     with lock:
         df_local = df.copy() if df is not None else pd.DataFrame()
     
     if df_local.empty:
-        logger.warning("No data for heatmap")
+        logger.info("No data for heatmap, using default region bounds")
         m = folium.Map(location=[-32.5, 152.5], zoom_start=6)
         m.save("static/heatmap.html")
+        heatmap_generated = True
         return "static/heatmap.html"
     
+    # Filter to only allowed region postcodes
+    df_local = df_local[df_local["Postcode"].isin(ALLOWED_POSTCODES)]
     coordinates = []
     for _, row in df_local.iterrows():
         postcode = row["Postcode"]
-        suburb = row["Suburb"]
         coords = POSTCODE_COORDS.get(postcode)
         if coords:
             coordinates.append(coords)
-        else:
-            logger.warning(f"No coordinates for Postcode: {postcode}, Suburb: {suburb}")
-            coordinates.append([-32.5, 152.5])  # Fallback
+        # Silently skip missing coordinates
     
     if not coordinates:
-        logger.warning("No valid coordinates found, using default bounds")
-        bounds = [[-34.0, 150.0], [-32.0, 154.0]]
+        logger.info("No valid coordinates in regions, using default bounds")
+        bounds = [[-35.0, 149.0], [-29.0, 154.0]]  # Rough bounds for NSW regions
     else:
         bounds = [
             [min(c[0] for c in coordinates) - 0.1, min(c[1] for c in coordinates) - 0.1],
@@ -110,10 +110,12 @@ def generate_heatmap():
     m.fit_bounds(bounds)
     m.save("static/heatmap.html")
     logger.info("Heatmap generated at static/heatmap.html")
+    heatmap_generated = True
     sys.stdout.flush()
     return "static/heatmap.html"
 
 def generate_region_median_chart(selected_region=None, selected_postcode=None):
+    global chart_generated
     logger.info("Generating region median chart...")
     sys.stdout.flush()
     with lock:
@@ -121,11 +123,12 @@ def generate_region_median_chart(selected_region=None, selected_postcode=None):
     chart_path = "static/region_median_chart.png"
     
     if df_local.empty:
-        logger.warning("No data for chart")
+        logger.info("No data for chart")
         plt.figure(figsize=(12, 6))
         plt.title("No Data Available")
         plt.savefig(chart_path, bbox_inches='tight')
         plt.close()
+        chart_generated = True
         return chart_path
     
     try:
@@ -151,11 +154,12 @@ def generate_region_median_chart(selected_region=None, selected_postcode=None):
             logger.info(f"No filter: {len(median_data)} regions")
         
         if median_data.empty:
-            logger.warning("No median data to plot")
+            logger.info("No median data to plot")
             plt.figure(figsize=(12, 6))
             plt.title("No Data Matches Filters")
             plt.savefig(chart_path, bbox_inches='tight')
             plt.close()
+            chart_generated = True
             return chart_path
         
         plt.figure(figsize=(12, 6))
@@ -170,17 +174,18 @@ def generate_region_median_chart(selected_region=None, selected_postcode=None):
         plt.savefig(chart_path, bbox_inches='tight', dpi=100)
         plt.close()
         logger.info(f"Region median chart generated at {chart_path}")
+        chart_generated = True
     except Exception as e:
         logger.error(f"Failed to generate chart: {str(e)}", exc_info=True)
         plt.figure(figsize=(12, 6))
         plt.title("Chart Generation Failed")
         plt.savefig(chart_path, bbox_inches='tight')
         plt.close()
+        chart_generated = True
     sys.stdout.flush()
     return chart_path
 
 def parse_dat_file(dat_content):
-    """Parse .DAT file content into a DataFrame based on B records."""
     try:
         lines = dat_content.read().decode('utf-8').splitlines()
         data = []
@@ -199,14 +204,13 @@ def parse_dat_file(dat_content):
                             "Property Type": "RESIDENCE" if fields[17].strip() == "R" else "VACANT LAND"
                         }
                         if not (record["Postcode"].isdigit() and len(record["Postcode"]) == 4):
-                            logger.warning(f"Invalid postcode: {record['Postcode']} in line: {line}")
                             continue
                         data.append(record)
                     except (ValueError, IndexError) as e:
                         logger.error(f"Error parsing line: {line} - {str(e)}")
                         continue
         if not data:
-            logger.warning("No valid B records found in .DAT file")
+            logger.info("No valid B records found in .DAT file")
             return pd.DataFrame(columns=["Postcode", "Suburb", "Price", "Settlement Date", "Street", "Property Type"])
         df = pd.DataFrame(data)
         logger.info(f"Parsed {len(df)} valid records")
@@ -270,14 +274,13 @@ def startup_tasks():
                                         all_data.append(df_chunk)
                 
                 if not all_data:
-                    logger.warning("STARTUP: No data loaded, using empty DataFrame")
+                    logger.info("STARTUP: No data loaded, using empty DataFrame")
                     df = pd.DataFrame(columns=["Postcode", "Suburb", "Price", "Settlement Date", "Street", "Property Type"])
                 else:
                     df = pd.concat(all_data, ignore_index=True)
                     logger.info(f"STARTUP: Combined {len(df)} rows before filtering")
                     sys.stdout.flush()
                     
-                    # Filter to only allowed postcodes
                     df = df[df["Postcode"].isin(ALLOWED_POSTCODES)]
                     logger.info(f"STARTUP: Filtered to {len(df)} rows within specified regions")
                     
@@ -289,9 +292,7 @@ def startup_tasks():
         logger.info(f"STARTUP: Data loaded: {len(df)} rows")
         sys.stdout.flush()
         
-        generate_heatmap()
-        generate_region_median_chart()
-        
+        # Defer heatmap and chart generation to first request
         startup_complete = True
         logger.info("STARTUP: Startup tasks completed successfully")
         sys.stdout.flush()
@@ -323,12 +324,20 @@ def index():
         logger.info(f"DATAFRAME: Copied {len(df_local)} rows")
         sys.stdout.flush()
         
+        # Generate heatmap and chart on first request if not already done
+        global heatmap_generated, chart_generated
+        heatmap_path = "static/heatmap.html" if os.path.exists("static/heatmap.html") else None
+        region_median_chart_path = "static/region_median_chart.png" if os.path.exists("static/region_median_chart.png") else None
+        if not heatmap_generated:
+            heatmap_path = generate_heatmap()
+        if not chart_generated:
+            region_median_chart_path = generate_region_median_chart()
+        
         # Get form data
         if request.method == "POST":
             selected_region = request.form.get("region", "")
             selected_postcode = request.form.get("postcode", "")
             selected_suburb = request.form.get("suburb", "")
-            # Reset suburb if region or postcode changes
             if "region" in request.form or "postcode" in request.form:
                 selected_suburb = ""
             selected_property_type = request.form.get("property_type", "ALL")
@@ -340,7 +349,7 @@ def index():
             selected_property_type = request.args.get("property_type", "ALL")
             sort_by = request.args.get("sort_by", "Street")
         
-        # Populate dropdowns based on current filters
+        # Populate dropdowns
         unique_postcodes = sorted(df_local["Postcode"].unique()) if not df_local.empty else []
         unique_suburbs = sorted(df_local["Suburb"].unique()) if not df_local.empty else []
         
@@ -358,7 +367,7 @@ def index():
         logger.info(f"REQUEST: method={request.method}, region={selected_region}, postcode={selected_postcode}, suburb={selected_suburb}, type={selected_property_type}, sort={sort_by}")
         sys.stdout.flush()
         
-        # Filter properties hierarchically
+        # Filter properties
         filtered_df = df_local.copy()
         logger.info(f"Initial properties: {len(filtered_df)}")
         
@@ -388,13 +397,10 @@ def index():
                 properties = filtered_df.sort_values(by=sort_by).to_dict('records')
             median_price = filtered_df["Price"].median()
         else:
-            logger.warning("No properties match the filters")
+            logger.info("No properties match the filters")
         
         logger.info(f"FILTERED: {len(properties)} properties")
         sys.stdout.flush()
-        
-        heatmap_path = "static/heatmap.html" if os.path.exists("static/heatmap.html") else None
-        region_median_chart_path = "static/region_median_chart.png" if os.path.exists("static/region_median_chart.png") else None
         
         logger.info("RENDERING: Starting index.html render")
         sys.stdout.flush()
@@ -440,7 +446,7 @@ def hot_suburbs():
     sort_by = request.form.get("sort_by", "Suburb") if request.method == "POST" else "Suburb"
     
     if df_local.empty:
-        logger.warning("No data for hot suburbs")
+        logger.info("No data for hot suburbs")
         return render_template("hot_suburbs.html", data_source="NSW Valuer General Data", hot_suburbs=[], total_suburbs=0, median_all_regions=0, sort_by=sort_by)
     
     suburb_medians = df_local[df_local["Property Type"] == "RESIDENCE"].groupby(["Suburb", "Postcode"])["Price"].median().reset_index()
